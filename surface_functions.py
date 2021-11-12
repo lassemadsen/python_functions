@@ -49,8 +49,8 @@ from brainspace.mesh.mesh_io import read_surface
 from brainstat.stats.terms import FixedEffect
 from brainstat.stats.SLM import SLM
 
-surf = {'left': read_surface('/Users/au483096/Documents/PhD/data/surface_data/mni_icbm152_t1_tal_nlin_sym_09c_left_smooth.gii'),
-        'right': read_surface('/Users/au483096/Documents/PhD/data/surface_data/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.gii')}
+surf = {'left': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_left_smooth.gii'),
+        'right': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.gii')}
 
 def unpaired_ttest(data_group1, data_group2):
 
