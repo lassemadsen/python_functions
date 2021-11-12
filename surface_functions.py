@@ -3,8 +3,12 @@
 
 import numpy as np
 import pandas as pd
+import os
 
 PUBLIC_PATH='/public/lama'
+
+if not os.path.isdir(PUBLIC_PATH):
+    PUBLIC_PATH='/Volumes/public/lama' # Used when hyades is mounted to own computer
 
 # ----- ROI functions ------
 def get_roi_mask(aal_list):
@@ -108,3 +112,30 @@ def paired_ttest(data1, data2):
     
     return result
 
+def correlation(surface_data, predictors):
+    """
+    Predictiors is a pandas dataframe with subject_id as column headers (same id as in surface_data)
+    If more than one row is in the dataframe, the remaining rows are used as covariates.
+    """
+    result = {'left': [], 'right': []}
+
+    common_subjects = sorted(list(set(surface_data['left'].columns) & set(predictors.columns)))
+
+    for hemisphere in ['left', 'right']:
+        data = surface_data[hemisphere][common_subjects].T
+
+        terms = {}
+        model = []
+        for predictor in predictors[common_subjects].index: 
+            terms[predictor] = FixedEffect(predictors[common_subjects].loc[predictor, :], names=predictor)
+
+            model = model + terms[predictor]        
+
+        contrast = predictors[common_subjects].loc[predictors.index[0], :].values
+
+        slm = SLM(model, contrast, surf=surf[hemisphere])
+        slm.fit(data.values)
+
+        result[hemisphere] = slm
+    
+    return result
