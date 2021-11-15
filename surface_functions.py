@@ -56,7 +56,7 @@ from brainstat.stats.SLM import SLM
 surf = {'left': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_left_smooth.gii'),
         'right': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.gii')}
 
-def unpaired_ttest(data_group1, data_group2):
+def unpaired_ttest(data_group1, data_group2, correction=None, cluster_threshold=0.001):
 
     result = {'left': [], 'right': []}
 
@@ -75,7 +75,7 @@ def unpaired_ttest(data_group1, data_group2):
         model = term_group1 + term_group2
         contrast = term_group2.group2 - term_group1.group1
 
-        slm = SLM(model, contrast, surf=surf[hemisphere])
+        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
         slm.fit(data.values)
 
         result[hemisphere] = slm
@@ -84,7 +84,7 @@ def unpaired_ttest(data_group1, data_group2):
 
     return result
 
-def paired_ttest(data1, data2):
+def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001):
     result = {'left': [], 'right': []}
 
     common_subjects = sorted(list(set(data1['left'].columns) & set(data2['left'].columns)))
@@ -103,7 +103,7 @@ def paired_ttest(data1, data2):
         model = term_meas1 + term_meas2 + term_subject
         contrast = term_meas2.measurment_2 - term_meas1.measurment_1
 
-        slm = SLM(model, contrast, surf=surf[hemisphere])
+        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
         slm.fit(data.values)
 
         result[hemisphere] = slm
@@ -112,7 +112,7 @@ def paired_ttest(data1, data2):
     
     return result
 
-def correlation(surface_data, predictors):
+def correlation(surface_data, predictors, correction=None, cluster_threshold=0.001):
     """
     Predictiors is a pandas dataframe with subject_id as column headers (same id as in surface_data)
     If more than one row is in the dataframe, the remaining rows are used as covariates.
@@ -133,7 +133,7 @@ def correlation(surface_data, predictors):
 
         contrast = predictors[common_subjects].loc[predictors.index[0], :].values
 
-        slm = SLM(model, contrast, surf=surf[hemisphere])
+        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
         slm.fit(data.values)
 
         result[hemisphere] = slm
