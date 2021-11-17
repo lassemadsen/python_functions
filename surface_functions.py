@@ -9,6 +9,8 @@ PUBLIC_PATH='/public/lama'
 
 if not os.path.isdir(PUBLIC_PATH):
     PUBLIC_PATH='/Volumes/public/lama' # Used when hyades is mounted to own computer
+if not os.path.isdir(PUBLIC_PATH):
+    PUBLIC_PATH=os.path.expanduser('~') # If not on hyades, data should lie in home folder on own computer
 
 # ----- ROI functions ------
 def get_roi_mask(aal_list):
@@ -119,7 +121,7 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
     """
     result = {'left': [], 'right': []}
 
-    common_subjects = sorted(list(set(surface_data['left'].columns) & set(predictors.columns)))
+    common_subjects = sorted(list(set(surface_data['left'].columns) & set(surface_data['right'].columns) & set(predictors.columns)))
 
     for hemisphere in ['left', 'right']:
         data = surface_data[hemisphere][common_subjects].T
@@ -138,4 +140,4 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
 
         result[hemisphere] = slm
     
-    return result
+    return result, common_subjects
