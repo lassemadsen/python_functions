@@ -144,9 +144,68 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
 
         contrast = predictors[common_subjects].loc[predictors.index[0], :].values
 
+        # --- Run model ---
         slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
         slm.fit(data.values)
 
         result[hemisphere] = slm
     
+    return result, common_subjects
+
+def correlation_other_surface(surface_data, surface_data_predictor, covariates=None, correction=None, cluster_threshold=0.001):
+    """
+    Correlation between two surfaces
+    Covariates (not surface data) can be given as a pandas dataframe with subject_id as column headers (same id as in surface_data)
+    """
+    result = {'left': [], 'right': []}
+
+    common_subjects = sorted(list(set(surface_data['left'].columns) & set(surface_data['right'].columns) & 
+                                  set(surface_data_predictor['left'].columns) & set(surface_data_predictor['right'].columns)))
+
+    for hemisphere in ['right', 'left']:
+        data = surface_data[hemisphere][common_subjects].T
+
+        mask = ~data.isna().any(axis=0).values
+
+        # Initialise t values to nan
+        t = np.zeros(mask.shape)
+        t[:] = np.nan
+
+        # Run model for each vertex
+        for i in np.where(mask==True)[0]:
+            mask_i = np.zeros_like(mask, dtype=bool)
+            mask_i[i] = True
+
+            # --- Correlation with other surface: ---
+            term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].iloc[i,:].values.T, names='surface_data') # 81219, 12001
+
+            model = term_slope
+            contrast = model.surface_data
+
+            if covariates is not None:
+                for covar in covariates[common_subjects].index: 
+                    term = FixedEffect(covariates[common_subjects].loc[covar, :], names=covar)
+
+                    model = model + term
+
+            # --- Run model ---
+            slm = SLM(model, contrast, correction=None, cluster_threshold=cluster_threshold, mask=mask_i)
+            slm.fit(data.values)
+
+            t[i] = slm.t[0][i]
+        
+        # Run with mean data to compute multple comparison
+        term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].mean().values, names='surface_data')
+        model = term_slope
+        contrast = model.surface_data
+
+        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
+        slm.fit(data.values)
+
+        slm.t = np.array([t])
+        if correction is not None:
+            slm.multiple_comparison_corrections(True)
+
+        result[hemisphere] = slm
+
     return result, common_subjects
