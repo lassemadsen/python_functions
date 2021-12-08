@@ -163,7 +163,7 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
     
     return result, common_subjects
 
-def correlation_other_surface(surface_data, surface_data_predictor, covariates=None, correction=None, cluster_threshold=0.001):
+def correlation_other_surface(surface_data, surface_data_predictor, predictor_name='surface_data', covariates=None, correction=None, cluster_threshold=0.001):
     """
     Correlation between two surfaces
 
@@ -173,6 +173,8 @@ def correlation_other_surface(surface_data, surface_data_predictor, covariates=N
         Independent surface data
     surface_data_predictor : dict('left', 'right')
         Predictor surface data
+    predictor_name : str | 'surface_data'
+        Name of predictor variable
     covariates : DataFrame | None
          Covariates (not surface data) can be given as a pandas dataframe with subject_id as column headers (same id as in surface_data)
     correction : str | None
@@ -200,7 +202,7 @@ def correlation_other_surface(surface_data, surface_data_predictor, covariates=N
             mask_i[i] = True
 
             # --- Correlation with other surface: ---
-            term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].iloc[i,:].values.T, names='surface_data')
+            term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].iloc[i,:].values.T, names=predictor_name)
 
             model = term_slope
             contrast = model.surface_data
@@ -218,7 +220,7 @@ def correlation_other_surface(surface_data, surface_data_predictor, covariates=N
             t[i] = slm.t[0][i]
         
         # Run with mean data to compute multple comparison
-        term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].mean().values, names='surface_data')
+        term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].mean().values, names=predictor_name)
         model = term_slope
         contrast = model.surface_data
 
