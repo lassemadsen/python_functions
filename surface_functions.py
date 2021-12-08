@@ -195,17 +195,15 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         # Initialise t values to nan
         t = np.zeros(mask.shape)
         t[:] = np.nan
+        
+        vert_list = np.where(mask==True)[0]
+        terms = [FixedEffect(surface_data_predictor[hemisphere][common_subjects].iloc[i,:].values.T) for i in vert_list]
 
         # Run model for each vertex
-        for i in np.where(mask==True)[0]:
-            mask_i = np.zeros_like(mask, dtype=bool)
-            mask_i[i] = True
-
-            # --- Correlation with other surface: ---
-            term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].iloc[i,:].values.T, names=predictor_name)
-
-            model = term_slope
-            contrast = model.matrix[predictor_name].values
+        for i, term in enumerate(terms):
+            # --- Correlation with other surface ---
+            model = term
+            contrast = model.x0
 
             if covariates is not None:
                 for covar in covariates[common_subjects].index: 
@@ -214,10 +212,10 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
                     model = model + term
 
             # --- Run model ---
-            slm = SLM(model, contrast, correction=None, cluster_threshold=cluster_threshold, mask=mask_i)
-            slm.fit(data.values)
+            slm = SLM(model, contrast)
+            slm.fit(data[[vert_list[i]]].values)
 
-            t[i] = slm.t[0][i]
+            t[vert_list[i]] = slm.t[0][0]
         
         # Run with mean data to compute multple comparison
         term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].mean().values, names=predictor_name)
