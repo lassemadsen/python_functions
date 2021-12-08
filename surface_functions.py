@@ -123,8 +123,19 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001):
 
 def correlation(surface_data, predictors, correction=None, cluster_threshold=0.001):
     """
-    Predictiors is a pandas dataframe with subject_id as column headers (same id as in surface_data)
-    If more than one row is in the dataframe, the remaining rows are used as covariates.
+    Correlation of surface with value (e.g. demography data such as age)
+
+    Parameters
+    ----------
+    surface_data : dict('left', 'right')
+        Independent surface data
+    Predictors : DataFrame
+        Predictiors is a pandas dataframe with subject_id as column headers (same id as in surface_data)
+        If more than one row, the rest of the rows are considere covariates
+    correction : str | None
+        Mulitple comparison correction: 'rft' or 'fdr'
+    cluster_threshold : float | 0.001
+        Primary cluster threshold 
     """
     result = {'left': [], 'right': []}
 
@@ -155,14 +166,26 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
 def correlation_other_surface(surface_data, surface_data_predictor, covariates=None, correction=None, cluster_threshold=0.001):
     """
     Correlation between two surfaces
-    Covariates (not surface data) can be given as a pandas dataframe with subject_id as column headers (same id as in surface_data)
+
+    Parameters
+    ----------
+    surface_data : dict('left', 'right')
+        Independent surface data
+    surface_data_predictor : dict('left', 'right')
+        Predictor surface data
+    covariates : DataFrame | None
+         Covariates (not surface data) can be given as a pandas dataframe with subject_id as column headers (same id as in surface_data)
+    correction : str | None
+        Mulitple comparison correction: 'rft' or 'fdr'
+    cluster_threshold : float | 0.001
+        Primary cluster threshold 
     """
     result = {'left': [], 'right': []}
 
     common_subjects = sorted(list(set(surface_data['left'].columns) & set(surface_data['right'].columns) & 
                                   set(surface_data_predictor['left'].columns) & set(surface_data_predictor['right'].columns)))
 
-    for hemisphere in ['right', 'left']:
+    for hemisphere in ['left', 'right']:
         data = surface_data[hemisphere][common_subjects].T
 
         mask = ~data.isna().any(axis=0).values
@@ -177,7 +200,7 @@ def correlation_other_surface(surface_data, surface_data_predictor, covariates=N
             mask_i[i] = True
 
             # --- Correlation with other surface: ---
-            term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].iloc[i,:].values.T, names='surface_data') # 81219, 12001
+            term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].iloc[i,:].values.T, names='surface_data')
 
             model = term_slope
             contrast = model.surface_data
