@@ -119,7 +119,7 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001):
     
     print(f'N={len(common_subjects)}')
     
-    return result
+    return result, common_subjects
 
 def correlation(surface_data, predictors, correction=None, cluster_threshold=0.001):
     """
@@ -197,11 +197,11 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         t[:] = np.nan
         
         vert_list = np.where(mask==True)[0]
-        terms = [FixedEffect(surface_data_predictor[hemisphere][common_subjects].iloc[i,:].values.T) for i in vert_list]
 
         # Run model for each vertex
-        for i, term in enumerate(terms):
+        for i in vert_list:
             # --- Correlation with other surface ---
+            term = FixedEffect(surface_data_predictor[hemisphere][common_subjects].iloc[i,:].values.T)
             model = term
             contrast = model.x0
 
@@ -213,9 +213,9 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
 
             # --- Run model ---
             slm = SLM(model, contrast)
-            slm.fit(data[[vert_list[i]]].values)
+            slm.fit(data[[i]])
 
-            t[vert_list[i]] = slm.t[0][0]
+            t[i] = slm.t[0][0]
         
         # Run with mean data to compute multple comparison
         term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].mean().values, names=predictor_name)
