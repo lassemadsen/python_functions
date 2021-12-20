@@ -220,6 +220,11 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         # Run with mean data to compute multple comparison
         term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].mean().values, names=predictor_name)
         model = term_slope
+        if covariates is not None:
+            for covar in covariates[common_subjects].index: 
+                term = FixedEffect(covariates[common_subjects].loc[covar, :], names=covar)
+                model = model + term
+
         contrast = model.matrix[predictor_name].values
 
         slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
