@@ -2,12 +2,17 @@ import subprocess
 import os
 import logging
 import pandas as pd
-from pathlib import Path
+import numpy as np
+import glob
+from brainspace.mesh.mesh_io import read_surface
 
 logging.basicConfig(format='%(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SURFACE_TEMPLATE = '/public/fristed/data/atlas/surface/mni_icbm152_t1_tal_nlin_sym_09c'
+SURFACE_GII = {'left': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_left_smooth.gii',
+               'right': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.gii'}
+SURFACE_OBJ = {'left': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_left_smooth.obj',
+               'right': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.obj'}
 SURFACE_BLUR = 20
 
 def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, timepoint, param_type, outdir, out_id=None, clean_surface=False):
@@ -64,12 +69,11 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, time
         mapping = f'{t1t2_pipeline}/{mr_id}/{timepoint}/face/mapping/{hemisphere}.corr'
 
         out_surface_prefix = f'{outdir}/{out_id}_{timepoint}_mid_{hemisphere}_{param_type}'
-        surface_template = f'{SURFACE_TEMPLATE}_{hemisphere}_smooth.obj'
 
         process_list.extend([
             f'surfacesignals.bin {param_data} {mid_surface} {out_surface_prefix}.dat',
-            f'map_measurements.bin {surface_template} {mid_surface} {mapping} {out_surface_prefix}.dat > {out_surface_prefix}_std.dat',
-            f'blur_measurements.bin -iter {SURFACE_BLUR} {surface_template} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{SURFACE_BLUR}.dat'])
+            f'map_measurements.bin {SURFACE_OBJ[hemisphere]} {mid_surface} {mapping} {out_surface_prefix}.dat > {out_surface_prefix}_std.dat',
+            f'blur_measurements.bin -iter {SURFACE_BLUR} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{SURFACE_BLUR}.dat'])
 
         succes = _run_process(process_list, out_id, timepoint, hemisphere, param_type)
 
@@ -124,7 +128,7 @@ def _run_process(process_list, sub_id, timepoint, hemisphere, measurement):
 
 def _clean_surface_after_smoothing(not_smoothed, smoothed):
     """Script to clean surface after smoothing to ensure that vertices outside FOV is set to -1
-    Furthermore, all values under 0 is set to -1.
+    Furthermore, all values under 0.5 is set to -1. (Perfusion parameter values under 0.5 are very low and therfore very likely to be casued be interpolation with voxels outside FOV)
     
     Parameter
     ---------
@@ -138,7 +142,78 @@ def _clean_surface_after_smoothing(not_smoothed, smoothed):
     s = pd.read_csv(smoothed)
 
     s[ns==-1] = -1
-    s[s < 0] = -1
+    s[s < 0.5] = -1
 
     s.to_csv(smoothed, index=False)
-    
+
+
+def clean_surface_outside_fov(surface_dir):
+    """ Surface mapping are using linear interpolation to extract values from each voxel.
+    Thus, in the edge of FOV, the values are not representing true perfusion parametric. 
+
+    To make up for this, this function finds these egde-vertices and set them as outside FOV (value = -1)
+    The method is based on region growing such that vertices outside FOV "grow into" the egde until the value on the CBF maps is above 1.
+
+    This new mask is used on all paramteric images for that particular scan.
+
+    The CBF maps is selected because it is fairly stable across all subjects and is normalised to WM.
+    A CBF below 1 is hence very low and not likely to be "true" in tissue not affacted by extensive vascular damage. 
+
+    """
+
+
+    logger.info('Cleaning surface outside FOV')
+
+    for pwi_type in ['PARAMETRIC', 'SEPARAMETRIC']:
+        
+        for hemisphere in ['left', 'right']: 
+            surf = read_surface(SURFACE_GII[hemisphere])
+            faces = surf.polys2D
+            vert_idx = np.arange(faces.max() + 1)
+
+            cbf_files = glob.glob(f'{surface_dir}/*{hemisphere}_{pwi_type}_CBF*blur20.dat')
+
+            for f in cbf_files:
+                logger.info(f)
+
+                cbf = pd.read_csv(f)
+                sub_prefix = f.split(f'{hemisphere}_{pwi_type}_CBF')[0]
+
+                outside_fov_clean = set()
+
+                # -- Threshold data --
+                outside_fov_not_used = set(vert_idx[cbf.values.ravel() == -1])
+                below_1 = set(vert_idx[cbf.values.ravel() < 1])
+
+                # --- Only used faces below 1 ---
+                faces = faces[np.isin(faces, list(below_1)).any(axis=1)]
+
+                # ----- Find clusters -----
+                while outside_fov_not_used:
+                    outside = {outside_fov_not_used.pop()}
+                    below_1.remove(list(outside)[0])
+
+                    neighbours = set(faces[np.isin(faces, list(outside)).any(axis=1)].ravel()) & below_1
+                    outside = outside | neighbours
+
+                    while True:
+                        neighbours = set(faces[np.isin(faces, list(neighbours)).any(axis=1)].ravel()) & below_1
+                        below_1 = below_1 - neighbours
+                        outside_fov_not_used = outside_fov_not_used - neighbours
+                        if len(neighbours) == 0:
+                            break
+                        else:
+                            outside = outside | neighbours
+
+                    outside_fov_clean.update(outside)
+                    outside_fov_not_used = outside_fov_not_used - outside
+
+
+                for param in ['CBF', 'CBV', 'MTT', 'CTH', 'RTH', 'PTO2']:
+                    if pwi_type is 'PARAMETRIC' and param is 'PTO2':
+                        continue
+
+                    param_file = glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_{param}*blur20.dat')
+                    df = pd.read_csv(param_file[0])
+                    df.iloc[list(outside_fov_clean)] = -1
+                    df.to_csv(param_file[0], index=None)
