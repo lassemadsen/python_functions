@@ -172,7 +172,7 @@ def clean_surface_outside_fov(surface_dir):
         
         for hemisphere in ['left', 'right']: 
             surf = read_surface(SURFACE_GII[hemisphere])
-            faces = surf.polys2D
+            faces_all = surf.polys2D
             vert_idx = np.arange(faces.max() + 1)
 
             cbf_files = glob.glob(f'{surface_dir}/*{hemisphere}_{pwi_type}_CBF*blur20.dat')
@@ -190,7 +190,7 @@ def clean_surface_outside_fov(surface_dir):
                 below_thresh = set(vert_idx[cbf.values.ravel() < cbf_thresh])
 
                 # --- Only used faces below cbf threshold ---
-                faces = faces[np.isin(faces, list(below_thresh)).any(axis=1)]
+                faces = faces[np.isin(faces_all, list(below_thresh)).any(axis=1)]
 
                 # ----- Find clusters -----
                 while outside_fov_not_used:
