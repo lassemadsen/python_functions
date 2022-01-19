@@ -165,6 +165,10 @@ def clean_surface_outside_fov(surface_dir):
     logger.info('Cleaning surface outside FOV')
 
     for pwi_type in ['PARAMETRIC', 'SEPARAMETRIC']:
+        if pwi_type is 'SEPARAMETRIC':
+            cbf_thresh = 1
+        else:
+            cbf_thresh = 0.25
         
         for hemisphere in ['left', 'right']: 
             surf = read_surface(SURFACE_GII[hemisphere])
@@ -183,22 +187,22 @@ def clean_surface_outside_fov(surface_dir):
 
                 # -- Threshold data --
                 outside_fov_not_used = set(vert_idx[cbf.values.ravel() == -1])
-                below_1 = set(vert_idx[cbf.values.ravel() < 1])
+                below_thresh = set(vert_idx[cbf.values.ravel() < cbf_thresh])
 
                 # --- Only used faces below 1 ---
-                faces = faces[np.isin(faces, list(below_1)).any(axis=1)]
+                faces = faces[np.isin(faces, list(below_thresh)).any(axis=1)]
 
                 # ----- Find clusters -----
                 while outside_fov_not_used:
                     outside = {outside_fov_not_used.pop()}
-                    below_1.remove(list(outside)[0])
+                    below_thresh.remove(list(outside)[0])
 
-                    neighbours = set(faces[np.isin(faces, list(outside)).any(axis=1)].ravel()) & below_1
+                    neighbours = set(faces[np.isin(faces, list(outside)).any(axis=1)].ravel()) & below_thresh
                     outside = outside | neighbours
 
                     while True:
-                        neighbours = set(faces[np.isin(faces, list(neighbours)).any(axis=1)].ravel()) & below_1
-                        below_1 = below_1 - neighbours
+                        neighbours = set(faces[np.isin(faces, list(neighbours)).any(axis=1)].ravel()) & below_thresh
+                        below_thresh = below_thresh - neighbours
                         outside_fov_not_used = outside_fov_not_used - neighbours
                         if len(neighbours) == 0:
                             break
@@ -214,6 +218,7 @@ def clean_surface_outside_fov(surface_dir):
                         continue
 
                     param_file = glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_{param}*blur20.dat')
+                    outfile = f'{param_file[0].split(".dat")[0]}_clean.dat'
                     df = pd.read_csv(param_file[0])
                     df.iloc[list(outside_fov_clean)] = -1
-                    df.to_csv(param_file[0], index=None)
+                    df.to_csv(outfile, index=None)
