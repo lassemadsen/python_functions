@@ -190,7 +190,7 @@ def clean_surface_outside_fov(surface_dir):
                 below_thresh = set(vert_idx[cbf.values.ravel() < cbf_thresh])
 
                 # --- Only used faces below cbf threshold ---
-                faces = faces[np.isin(faces_all, list(below_thresh)).any(axis=1)]
+                faces = faces_all[np.isin(faces_all, list(below_thresh)).any(axis=1)]
 
                 # ----- Find clusters -----
                 while outside_fov_not_used:
