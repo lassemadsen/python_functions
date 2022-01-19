@@ -173,7 +173,7 @@ def clean_surface_outside_fov(surface_dir):
         for hemisphere in ['left', 'right']: 
             surf = read_surface(SURFACE_GII[hemisphere])
             faces_all = surf.polys2D
-            vert_idx = np.arange(faces.max() + 1)
+            vert_idx = np.arange(faces_all.max() + 1)
 
             cbf_files = glob.glob(f'{surface_dir}/*{hemisphere}_{pwi_type}_CBF*blur20.dat')
 
