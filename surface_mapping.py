@@ -202,7 +202,6 @@ def clean_surface_outside_fov(surface_dir):
                     while True:
                         neighbours = set(faces[np.isin(faces, list(neighbours)).any(axis=1)].ravel()) & below_thresh
                         below_thresh = below_thresh - neighbours
-                        outside_fov_not_used = outside_fov_not_used - neighbours
                         if len(neighbours) == 0:
                             break
                         else:
