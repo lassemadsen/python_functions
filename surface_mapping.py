@@ -217,6 +217,10 @@ def clean_surface_outside_fov(surface_dir):
 
                     param_file = glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_{param}*blur20.dat')
                     outfile = f'{param_file[0].split(".dat")[0]}_clean.dat'
+
+                    if os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
+                        continue
+                    
                     df = pd.read_csv(param_file[0])
                     df.iloc[list(outside_fov_clean)] = -1
                     df.to_csv(outfile, index=None)
