@@ -84,7 +84,7 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, time
         if param_type is 'thickness':
             # Cortical thickness data is already in MNI space. Only needs blurring
             process_list.extend([
-                f'cp {t1t2_pipeline}/{mr_id}/{timepoint}/face/mapping/{hemisphere}.dist {out_surface_prefix}_std.dat'
+                f'cp {t1t2_pipeline}/{mr_id}/{timepoint}/face/mapping/{hemisphere}.dist {out_surface_prefix}_std.dat',
                 f'blur_measurements.bin -iter {SURFACE_BLUR} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{SURFACE_BLUR}.dat'])
         else:
             process_list.extend([
