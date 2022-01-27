@@ -55,12 +55,22 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, time
 
         mid_surface = f'{outdir}/{out_id}_{timepoint}_mid_{hemisphere}_{param_type}.obj'
 
-        process_list.extend([
-            f'midsurface.bin {mr_path}/face/surfaces/world/inner_{hemisphere}.obj {mr_path}/face/surfaces/world/outer_{hemisphere}.obj {mr_path}/face/measurements/outer_{hemisphere}.corr {mr_path}/face/surfaces/world/mid_{hemisphere}.obj',
-            f'xfminvert {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1.xfm {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1_inv.xfm',
-            f'transform_objects {mr_path}/face/surfaces/world/mid_{hemisphere}.obj {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1_inv.xfm {mr_path}/face/surfaces/native/mid_{hemisphere}.obj',
-            f'transform_objects {mr_path}/face/surfaces/native/mid_{hemisphere}.obj {t1_to_param_transform} {mid_surface}'])
-    
+        if t1_to_param_transform is not None:
+            process_list.extend([
+                f'midsurface.bin {mr_path}/face/surfaces/world/inner_{hemisphere}.obj {mr_path}/face/surfaces/world/outer_{hemisphere}.obj {mr_path}/face/measurements/outer_{hemisphere}.corr {mr_path}/face/surfaces/world/mid_{hemisphere}.obj',
+                f'xfminvert {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1.xfm {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1_inv.xfm',
+                f'transform_objects {mr_path}/face/surfaces/world/mid_{hemisphere}.obj {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1_inv.xfm {mr_path}/face/surfaces/native/mid_{hemisphere}.obj',
+                f'transform_objects {mr_path}/face/surfaces/native/mid_{hemisphere}.obj {t1_to_param_transform} {mid_surface}'])
+        else:
+            if param_type is 'thickness':
+                continue
+                # Cortical thickness data is already mapped to MNI surface
+            process_list.extend([
+                f'midsurface.bin {mr_path}/face/surfaces/world/inner_{hemisphere}.obj {mr_path}/face/surfaces/world/outer_{hemisphere}.obj {mr_path}/face/measurements/outer_{hemisphere}.corr {mr_path}/face/surfaces/world/mid_{hemisphere}.obj',
+                f'xfminvert {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1.xfm {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1_inv.xfm',
+                f'transform_objects {mr_path}/face/surfaces/world/mid_{hemisphere}.obj {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1_inv.xfm {mr_path}/face/surfaces/native/mid_{hemisphere}.obj',
+                f'cp {mr_path}/face/surfaces/native/mid_{hemisphere}.obj {mid_surface}'])
+        
         # ----- Map signals to surface -----
         # 1. Map parameter data onto surface
         # 2. Move surface to standard MNI space
@@ -70,10 +80,16 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, time
 
         out_surface_prefix = f'{outdir}/{out_id}_{timepoint}_mid_{hemisphere}_{param_type}'
 
-        process_list.extend([
-            f'surfacesignals.bin {param_data} {mid_surface} {out_surface_prefix}.dat',
-            f'map_measurements.bin {SURFACE_OBJ[hemisphere]} {mid_surface} {mapping} {out_surface_prefix}.dat > {out_surface_prefix}_std.dat',
-            f'blur_measurements.bin -iter {SURFACE_BLUR} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{SURFACE_BLUR}.dat'])
+        if param_type is 'thickness':
+            # Cortical thickness data is already in MNI space. Only needs blurring
+            process_list.extend([
+                f'cp {t1t2_pipeline}/{mr_id}/{timepoint}/face/mapping/{hemisphere}.dist {out_surface_prefix}_std.dat'
+                f'blur_measurements.bin -iter {SURFACE_BLUR} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{SURFACE_BLUR}.dat'])
+        else:
+            process_list.extend([
+                f'surfacesignals.bin {param_data} {mid_surface} {out_surface_prefix}.dat',
+                f'map_measurements.bin {SURFACE_OBJ[hemisphere]} {mid_surface} {mapping} {out_surface_prefix}.dat > {out_surface_prefix}_std.dat',
+                f'blur_measurements.bin -iter {SURFACE_BLUR} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{SURFACE_BLUR}.dat'])
 
         succes = _run_process(process_list, out_id, timepoint, hemisphere, param_type)
 
