@@ -63,7 +63,7 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, time
                 f'transform_objects {mr_path}/face/surfaces/native/mid_{hemisphere}.obj {t1_to_param_transform} {mid_surface}'])
         else:
             if param_type is 'thickness':
-                continue
+                pass
                 # Cortical thickness data is already mapped to MNI surface
             process_list.extend([
                 f'midsurface.bin {mr_path}/face/surfaces/world/inner_{hemisphere}.obj {mr_path}/face/surfaces/world/outer_{hemisphere}.obj {mr_path}/face/measurements/outer_{hemisphere}.corr {mr_path}/face/surfaces/world/mid_{hemisphere}.obj',
