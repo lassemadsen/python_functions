@@ -164,7 +164,7 @@ def _clean_surface_after_smoothing(not_smoothed, smoothed):
     s.to_csv(smoothed, index=False)
 
 
-def clean_surface_outside_fov(surface_dir):
+def clean_perfusion_surface_outside_fov(surface_dir):
     """ Surface mapping are using linear interpolation to extract values from each voxel.
     Thus, in the edge of FOV, the values are not representing true perfusion parametric. 
 
@@ -228,11 +228,14 @@ def clean_surface_outside_fov(surface_dir):
                     outside_fov_not_used = outside_fov_not_used - outside
 
 
-                for param in ['CBF', 'CBV', 'MTT', 'CTH', 'RTH', 'PTO2']:
-                    if pwi_type is 'PARAMETRIC' and param is 'PTO2':
+                for param in ['CBF', 'CBV', 'MTT', 'CTH', 'RTH', 'PTO2' 'VSI']:
+                    if pwi_type is 'PARAMETRIC' and param in ['PTO2', 'VSI']:
                         continue
 
                     param_file = glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_{param}*blur20.dat')
+                    if not param_file:
+                        continue # Not all subjects have VSI
+
                     outfile = f'{param_file[0].split(".dat")[0]}_clean.dat'
 
                     if os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
