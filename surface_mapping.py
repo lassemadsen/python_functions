@@ -228,14 +228,11 @@ def clean_perfusion_surface_outside_fov(surface_dir):
                     outside_fov_not_used = outside_fov_not_used - outside
 
 
-                for param in ['CBF', 'CBV', 'MTT', 'CTH', 'RTH', 'PTO2' 'VSI']:
-                    if pwi_type is 'PARAMETRIC' and param in ['PTO2', 'VSI']:
+                for param in ['CBF', 'CBV', 'MTT', 'CTH', 'RTH', 'PTO2']:
+                    if pwi_type is 'PARAMETRIC' and param is 'PTO2':
                         continue
 
                     param_file = glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_{param}*blur20.dat')
-                    if not param_file:
-                        continue # Not all subjects have VSI
-
                     outfile = f'{param_file[0].split(".dat")[0]}_clean.dat'
 
                     if os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
@@ -244,3 +241,30 @@ def clean_perfusion_surface_outside_fov(surface_dir):
                     df = pd.read_csv(param_file[0])
                     df.iloc[list(outside_fov_clean)] = -1
                     df.to_csv(outfile, index=None)
+                
+def clean_VSI_outside_FOV(surface_dir):
+    """ Remove vertices not is both the SE and GE FOV
+    """
+
+    for hemisphere in ['left', 'right']: 
+        vsi_files = glob.glob(f'{surface_dir}/*{hemisphere}_VSI*blur20.dat')
+
+        for vsi_file in vsi_files:
+            vsi = pd.read_csv(vsi_file)
+            sub_prefix = vsi_file.split(f'{hemisphere}_VSI')[0]
+
+            se_cbv_file = glob.glob(f'{sub_prefix}{hemisphere}_SEPWI_CBV*blur20.dat')
+            ge_cbv_file = glob.glob(f'{sub_prefix}{hemisphere}_PWI_CBV*blur20.dat')
+
+            se_cbv = pd.read_csv(se_cbv_file[0])
+            ge_cbv = pd.read_csv(ge_cbv_file[0])
+
+            outside_fov_clean = list((se_cbv < 0) & (ge_cbv < 0))
+
+            outfile = f'{vsi_file.split(".dat")[0]}_clean.dat'
+
+            if os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
+                continue
+
+            vsi.iloc[outside_fov_clean] = -1
+            vsi.to_csv(outfile, index=None)
