@@ -253,13 +253,13 @@ def clean_VSI_outside_FOV(surface_dir):
             vsi = pd.read_csv(vsi_file)
             sub_prefix = vsi_file.split(f'{hemisphere}_VSI')[0]
 
-            se_cbv_file = glob.glob(f'{sub_prefix}{hemisphere}_SEPWI_CBV*blur20.dat')
-            ge_cbv_file = glob.glob(f'{sub_prefix}{hemisphere}_PWI_CBV*blur20.dat')
+            se_cbv_file = glob.glob(f'{sub_prefix}{hemisphere}_SEPARAMETRIC_CBV*blur20.dat')
+            ge_cbv_file = glob.glob(f'{sub_prefix}{hemisphere}_PARAMETRIC_CBV*blur20.dat')
 
             se_cbv = pd.read_csv(se_cbv_file[0])
             ge_cbv = pd.read_csv(ge_cbv_file[0])
 
-            outside_fov_clean = list((se_cbv < 0) & (ge_cbv < 0))
+            outside_fov_clean = ((se_cbv < 0) | (ge_cbv < 0)).values.ravel()
 
             outfile = f'{vsi_file.split(".dat")[0]}_clean.dat'
 
