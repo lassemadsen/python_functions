@@ -5,12 +5,17 @@ import numpy as np
 import pandas as pd
 import os
 
+from scipy.stats import pearsonr
+
 PUBLIC_PATH='/public/lama'
 
 if not os.path.isdir(PUBLIC_PATH):
     PUBLIC_PATH='/Volumes/public/lama' # Used when hyades is mounted to own computer
 if not os.path.isdir(PUBLIC_PATH):
     PUBLIC_PATH=os.path.expanduser('~') # If not on hyades, data should lie in home folder on own computer
+
+SURFACE_GII = {'left': f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_left_smooth.gii',
+               'right': f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.gii'}
 
 # ----- ROI functions ------
 def get_roi_mask(aal_list):
@@ -121,9 +126,9 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001):
     
     return result, common_subjects
 
-def correlation(surface_data, predictors, correction=None, cluster_threshold=0.001):
+def correlation(surface_data, predictors, correction=None, cluster_threshold=0.001, alpha=0.05):
     """
-    Correlation of surface with value (e.g. demography data such as age)
+    Correlation of surface with value (e.g. demography data such as age or cognitive score)
 
     Parameters
     ----------
@@ -135,7 +140,9 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
     correction : str | None
         Mulitple comparison correction: 'rft' or 'fdr'
     cluster_threshold : float | 0.001
-        Primary cluster threshold 
+        Primary cluster threshold
+    alpha : float | 0.05
+        Threshold of corrected clusters
     """
     result = {'left': [], 'right': []}
 
@@ -161,9 +168,55 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
 
         result[hemisphere] = slm
     
+    if correction is not None:
+        # Get mask of surviving clusters (alpha*2, to get one-sided result)
+        cluster_mask = {'left': result['left'].P['pval']['C'] < alpha*2 if result['left'].P['pval']['C'] is not None else np.zeros_like(surface_data['left'].iloc[:,0]),
+                        'right': result['right'].P['pval']['C'] < alpha*2 if result['right'].P['pval']['C'] is not None else np.zeros_like(surface_data['right'].iloc[:,0])}
+    else:
+        cluster_mask = {'left': np.ones_like(surface_data['left'].iloc[:,0]),
+                        'right': np.ones_like(surface_data['right'].iloc[:,0])}
+    
+    return result, common_subjects, cluster_mask
+
+def correlation_pearson(param, predictor):
+    """
+    Pearson correlation of surface with value (e.g. demography data such as age or cognitive score) or surface
+
+    Parameters
+    ----------
+    data : dict('left', 'right')
+        Independent surface data
+    Predictors : DataFrame
+        Predictiors is a pandas dataframe with subject_id as column headers (same id as in surface_data)
+        If more than one row, the rest of the rows are considere covariates
+    """
+    result = {'left': [], 'right': []}
+
+    common_subjects = sorted(list(set(param['left'].columns) & set(param['right'].columns) & 
+                                  set(predictor['left'].columns) & set(predictor['right'].columns)))
+
+    for hemisphere in ['left', 'right']:
+        data = param[hemisphere][common_subjects].T
+
+        mask = ~data.isna().any(axis=0).values
+
+        # Initialise t values to nan
+        r = np.zeros(mask.shape)
+        r[:] = np.nan
+        
+        vert_list = np.where(mask==True)[0]
+
+        # Run model for each vertex
+        for i in vert_list:
+            # --- Correlation with other surface ---
+            r_corr, _ = pearsonr(predictor[hemisphere][common_subjects].iloc[i,:].values.T, data[[i]])
+            r[i] = r_corr[0]
+
+        result[hemisphere] = r
+    
     return result, common_subjects
 
-def correlation_other_surface(surface_data, surface_data_predictor, predictor_name='surface_data', covariates=None, correction=None, cluster_threshold=0.001):
+def correlation_other_surface(surface_data, surface_data_predictor, predictor_name='surface_data', covariates=None, correction=None, cluster_threshold=0.001, alpha=0.05):
     """
     Correlation between two surfaces
 
@@ -180,7 +233,9 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
     correction : str | None
         Mulitple comparison correction: 'rft' or 'fdr'
     cluster_threshold : float | 0.001
-        Primary cluster threshold 
+        Primary cluster threshold
+    alpha : float | 0.05
+        Threshold of corrected clusters
     """
     result = {'left': [], 'right': []}
 
@@ -236,4 +291,12 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
 
         result[hemisphere] = slm
 
-    return result, common_subjects
+    if correction is not None:
+        # Get mask of surviving clusters (alpha*2, to get one-sided result)
+        cluster_mask = {'left': result['left'].P['pval']['C'] < alpha*2 if result['left'].P['pval']['C'] is not None else np.zeros_like(surface_data['left'].iloc[:,0]),
+                        'right': result['right'].P['pval']['C'] < alpha*2 if result['right'].P['pval']['C'] is not None else np.zeros_like(surface_data['right'].iloc[:,0])}
+    else:
+        cluster_mask = {'left': np.ones_like(surface_data['left'].iloc[:,0]),
+                        'right': np.ones_like(surface_data['right'].iloc[:,0])}
+
+    return result, common_subjects, cluster_mask
