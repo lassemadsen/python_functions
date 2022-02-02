@@ -63,8 +63,10 @@ from brainstat.stats.SLM import SLM
 surf = {'left': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_left_smooth.gii'),
         'right': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.gii')}
 
-def unpaired_ttest(data_group1, data_group2, correction=None, cluster_threshold=0.001):
+def unpaired_ttest(data_group1, data_group2, correction=None, cluster_threshold=0.001, alpha=0.05):
     """
+    alpha : float | 0.05
+        Threshold of corrected clusters
     """
     result = {'left': [], 'right': []}
 
@@ -92,10 +94,14 @@ def unpaired_ttest(data_group1, data_group2, correction=None, cluster_threshold=
     
     print(f'Group 1: N={len(group1_subjects)}, group 2: N={len(group2_subjects)}')
 
-    return result
+    cluster_mask = get_cluster_mask(result, correction, alpha)
 
-def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001):
+    return result, cluster_mask
+
+def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0.05):
     """
+    alpha : float | 0.05
+        Threshold of corrected clusters
     """
     result = {'left': [], 'right': []}
 
@@ -123,8 +129,10 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001):
         result[hemisphere] = slm
     
     print(f'N={len(common_subjects)}')
+
+    cluster_mask = get_cluster_mask(result, correction, alpha)
     
-    return result, common_subjects
+    return result, common_subjects, cluster_mask
 
 def correlation(surface_data, predictors, correction=None, cluster_threshold=0.001, alpha=0.05):
     """
@@ -168,13 +176,7 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
 
         result[hemisphere] = slm
     
-    if correction is not None:
-        # Get mask of surviving clusters (alpha*2, to get one-sided result)
-        cluster_mask = {'left': result['left'].P['pval']['C'] < alpha*2 if result['left'].P['pval']['C'] is not None else np.zeros_like(surface_data['left'].iloc[:,0]),
-                        'right': result['right'].P['pval']['C'] < alpha*2 if result['right'].P['pval']['C'] is not None else np.zeros_like(surface_data['right'].iloc[:,0])}
-    else:
-        cluster_mask = {'left': np.ones_like(surface_data['left'].iloc[:,0]),
-                        'right': np.ones_like(surface_data['right'].iloc[:,0])}
+    cluster_mask = get_cluster_mask(result, correction, alpha)
     
     return result, common_subjects, cluster_mask
 
@@ -291,12 +293,18 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
 
         result[hemisphere] = slm
 
-    if correction is not None:
-        # Get mask of surviving clusters (alpha*2, to get one-sided result)
-        cluster_mask = {'left': result['left'].P['pval']['C'] < alpha*2 if result['left'].P['pval']['C'] is not None else np.zeros_like(surface_data['left'].iloc[:,0]),
-                        'right': result['right'].P['pval']['C'] < alpha*2 if result['right'].P['pval']['C'] is not None else np.zeros_like(surface_data['right'].iloc[:,0])}
-    else:
-        cluster_mask = {'left': np.ones_like(surface_data['left'].iloc[:,0]),
-                        'right': np.ones_like(surface_data['right'].iloc[:,0])}
+    cluster_mask = get_cluster_mask(result, correction, alpha)
 
     return result, common_subjects, cluster_mask
+    
+def get_cluster_mask(result, correction, alpha):
+    if correction is not None:
+        # Get mask of surviving clusters (alpha*2, to get one-sided result)
+        cluster_mask = {'left': result['left'].P['pval']['C'] < alpha*2 if result['left'].P['pval']['C'] is not None else np.zeros_like(result['left'].mask),
+                        'right': result['right'].P['pval']['C'] < alpha*2 if result['right'].P['pval']['C'] is not None else np.zeros_like(result['right'].mask)}
+    else:
+        cluster_mask = {'left': np.ones_like(result['left'].mask),
+                        'right': np.ones_like(result['right'].mask)}
+
+    return cluster_mask
+
