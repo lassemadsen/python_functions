@@ -1,7 +1,6 @@
 """This script contain useful funcitons when working with cortical surface data in python
 """
 
-from unicodedata import name
 import numpy as np
 import pandas as pd
 import os
@@ -25,14 +24,19 @@ ATLAS_LOOKUP = f'{PUBLIC_PATH}/data/surface/aal_full.txt'
 
 # ----- ROI functions ------
 def get_roi_mask(aal_list):
-    """Get mask of anatomical areas
+    """
+    Get mask of anatomical areas
     Explanation of anatomical atlas areas can be found in /public/lama/data/surface/aal_full.txt
-    Note: Area labels for left and right are different, include both.  
-    
+    Note: Area labels for left and right are different: include both.
+
     Parameters
     ----------
-    aal_list : list<int>
+    aal_list : list of int
         List of anatomical areas the mask should contain
+    Returns
+    -------
+    roi : dict
+        A dictionary containing the mask of anatomical areas for both the left and right hemispheres
     """
 
     roi = {'left': [],
@@ -46,14 +50,20 @@ def get_roi_mask(aal_list):
     return roi
 
 def lookup_roi(aal_area):
-    """Get name of anatomical area.
+    """
+    Get the name of the anatomical area.
     Explanation of anatomical atlas areas can be found in /public/lama/data/surface/aal_full.txt
-    
+
     Parameters
     ----------
     aal_area : int
-        Value of anatomical area
+        The value of the anatomical area
+    Returns
+    -------
+    name : str
+        The name of the anatomical area
     """
+
 
     aal_full = pd.read_csv(ATLAS_LOOKUP, names=['val', 'name'])
 
@@ -71,10 +81,32 @@ surf = {'left': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nli
 
 def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, cluster_threshold=0.001, alpha=0.05):
     """
-    alpha : float | 0.05
-        Threshold of corrected clusters
-    covars : pandas df
-        Dataframe with covariates (one per row) and header is id (matching ids in data_group1 and data_group2)
+    Perform an unpaired t-test on the two groups of data.
+    
+    Parameters
+    ----------
+    data_group1 : dict of DataFrame
+        A dictionary containing the data for the first group of subjects, with 'left' and 'right' as keys.
+    data_group2 : dict of DataFrame
+        A dictionary containing the data for the second group of subjects, with 'left' and 'right' as keys.
+    covars : pandas DataFrame, optional
+        Dataframe with covariates (one per row) and header as id (matching ids in data_group1 and data_group2).
+    correction : str or None, optional
+        Correction method for multiple comparisons. If None, no correction is performed.
+    cluster_threshold : float, optional
+        Threshold for cluster formation, in percent (default 0.001).
+    alpha : float, optional
+        Threshold of corrected clusters (default 0.05).
+    
+    Returns
+    -------
+    result : dict
+        A dictionary containing the SLM results for each hemisphere, with 'left' and 'right' as keys.
+    cluster_mask : np.ndarray
+        An array containing the binary cluster mask for significant clusters, shape is (num_vertices,).
+    cluster_summary : pandas DataFrame
+        A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
+        'size', and 'p'.
     """
     result = {'left': [], 'right': []}
 
@@ -116,15 +148,37 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, clust
 
 def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0.05):
     """
-    alpha : float | 0.05
-        Threshold of corrected clusters
+    Perform a paired t-test on the data.
+    
+    Parameters
+    ----------
+    data_group1 : dict of DataFrame
+        A dictionary containing the data for the first set of measurements with 'left' and 'right' as keys.
+    data_group2 : dict of DataFrame
+        A dictionary containing the data for the second set of measurements with 'left' and 'right' as keys.
+    correction : str or None, optional
+        Correction method for multiple comparisons. If None, no correction is performed.
+    cluster_threshold : float, optional
+        Threshold for cluster formation, in percent (default 0.001).
+    alpha : float, optional
+        Threshold of corrected clusters (default 0.05).
+    
+    Returns
+    -------
+    result : dict
+        A dictionary containing the SLM results for each hemisphere, with 'left' and 'right' as keys.
+    cluster_mask : np.ndarray
+        An array containing the binary cluster mask for significant clusters, shape is (num_vertices,).
+    cluster_summary : pandas DataFrame
+        A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
+        'size', and 'p'.
     """
     result = {'left': [], 'right': []}
 
     common_subjects = sorted(list(set(data1['left'].columns) & set(data2['left'].columns)))
 
-    measurement_1 = pd.DataFrame(np.concatenate([np.ones(len(common_subjects)), np.zeros(len(common_subjects))]), columns=['measurment_1'])
-    measurement_2 = pd.DataFrame(np.concatenate([np.zeros(len(common_subjects)), np.ones(len(common_subjects))]), columns=['measurment_2'])
+    measurement_1 = pd.DataFrame(np.concatenate([np.ones(len(common_subjects)), np.zeros(len(common_subjects))]), columns=['measurement_1'])
+    measurement_2 = pd.DataFrame(np.concatenate([np.zeros(len(common_subjects)), np.ones(len(common_subjects))]), columns=['measurement_2'])
     subjects = pd.DataFrame(np.tile(np.eye(len(common_subjects)), 2).T, columns=common_subjects)
 
     for hemisphere in ['left', 'right']:
@@ -137,7 +191,7 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
         term_subject = FixedEffect(subjects, add_intercept=False)
 
         model = term_meas1 + term_meas2 + term_subject
-        contrast = term_meas2.measurment_2 - term_meas1.measurment_1
+        contrast = term_meas2.measurement_2 - term_meas1.measurement_1
 
         slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
         slm.fit(data.values)
@@ -153,22 +207,35 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
 
 def correlation(surface_data, predictors, correction=None, cluster_threshold=0.001, alpha=0.05):
     """
-    Correlation of surface with value (e.g. demography data such as age or cognitive score)
+    Calculate the correlation of surface with value (e.g. demography data such as age or cognitive score)
 
     Parameters
     ----------
-    surface_data : dict('left', 'right')
-        Independent surface data
-    Predictors : DataFrame
-        Predictiors is a pandas dataframe with subject_id as column headers (same id as in surface_data)
-        If more than one row, the rest of the rows are considere covariates
-    correction : str | None
-        Mulitple comparison correction: 'rft' or 'fdr'
-    cluster_threshold : float | 0.001
-        Primary cluster threshold
-    alpha : float | 0.05
-        Threshold of corrected clusters
+    surface_data : dict of DataFrame
+        A dictionary containing the data for the surface measurements with 'left' and 'right' as keys.
+    predictors : DataFrame
+        Pandas dataframe with subject_id as column headers (same id as in surface_data)
+        If more than one row, the rest of the rows are considered covariates.
+    correction : str, optional
+        Multiple comparison correction: 'rft' or 'fdr'.
+    cluster_threshold : float, optional
+        Threshold for cluster formation, in percent (default 0.001).
+    alpha : float, optional
+        Threshold of corrected clusters (default 0.05).
+        
+    Returns
+    -------
+    result : dict
+        A dictionary containing the SLM corrrelation results for each hemisphere, with 'left' and 'right' as keys.
+    common_subjects : list
+        List of subjects used for the correlation analysis.
+    cluster_mask : np.ndarray
+        An array containing the binary cluster mask for significant clusters, shape is (num_vertices,).
+    cluster_summary : pandas DataFrame
+        A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
+        'size', and 'p'.
     """
+
     result = {'left': [], 'right': []}
 
     common_subjects = sorted(list(set(surface_data['left'].columns) & set(surface_data['right'].columns) & set(predictors.columns)))
@@ -238,24 +305,36 @@ def correlation_pearson(param, predictor):
 
 def correlation_other_surface(surface_data, surface_data_predictor, predictor_name='surface_data', covariates=None, correction=None, cluster_threshold=0.001, alpha=0.05):
     """
-    Correlation between two surfaces
+    Calculate the correlation of two surfaces 
 
     Parameters
     ----------
-    surface_data : dict('left', 'right')
-        Independent surface data
-    surface_data_predictor : dict('left', 'right')
-        Predictor surface data
-    predictor_name : str | 'surface_data'
-        Name of predictor variable
-    covariates : DataFrame | None
-         Covariates (not surface data) can be given as a pandas dataframe with subject_id as column headers (same id as in surface_data)
-    correction : str | None
-        Mulitple comparison correction: 'rft' or 'fdr'
-    cluster_threshold : float | 0.001
-        Primary cluster threshold
-    alpha : float | 0.05
-        Threshold of corrected clusters
+    surface_data : dict of DataFrame
+        A dictionary containing the data for the first surface measurements with 'left' and 'right' as keys.
+    surface_data_predictor : dict of DataFrame
+        A dictionary containing the data for the second surface measurements with 'left' and 'right' as keys.
+    predictor_name : str, optional
+        Name of the surface data for the second surface measurement (default is 'surface_data')
+    covariates : pandas DataFrame, optional
+        Dataframe with covariates (one per row) and header as id (matching ids in surface_data and surface_data_predictor).
+    correction : str, optional
+        Multiple comparison correction: 'rft' or 'fdr'.
+    cluster_threshold : float, optional
+        Threshold for cluster formation, in percent (default 0.001).
+    alpha : float, optional
+        Threshold of corrected clusters (default 0.05).
+        
+    Returns
+    -------
+    result : dict
+        A dictionary containing the SLM corrrelation results for each hemisphere, with 'left' and 'right' as keys.
+    common_subjects : list
+        List of subjects used for the correlation analysis.
+    cluster_mask : np.ndarray
+        An array containing the binary cluster mask for significant clusters, shape is (num_vertices,).
+    cluster_summary : pandas DataFrame
+        A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
+        'size', and 'p'.
     """
     result = {'left': [], 'right': []}
 
@@ -317,6 +396,23 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
     return result, common_subjects, cluster_mask, cluster_summary
     
 def get_cluster_mask(result, correction, alpha):
+    """
+    Returns a mask indicating the clusters that survive the statistical test.
+
+    Parameters
+    ----------
+    result : dict of DataFrame
+        Results of the statistical test for each hemisphere with 'left' and 'right' as keys.
+    correction : str or None
+        Type of multiple comparison correction used. Valid values are 'rft', 'fdr' or None.
+    alpha : float
+        Threshold of corrected clusters.
+
+    Returns
+    -------
+    dict('left', 'right')
+        A dictionary with a mask indicating the clusters that survive the statistical test for each hemisphere.
+    """
     if correction is not None:
         # Get mask of surviving clusters (alpha*2, to get one-sided result)
         cluster_mask = {'left': result['left'].P['pval']['C'] < alpha*2 if result['left'].P['pval']['C'] is not None else np.zeros_like(result['left'].mask),
@@ -328,9 +424,19 @@ def get_cluster_mask(result, correction, alpha):
     return cluster_mask
 
 def get_cluster_summary(result):
-    """Calculate summary of surviving clusters
-    
-    Return information on cluster area (mm^2), cluster_id, cluster location (MNI coordinates) and cluster corrected p-value
+    """
+    Calculate summary of surviving clusters.
+
+    Parameters:
+    -----------
+    result : dict
+        A dictionary containing the results of a statistical analysis for each hemisphere with 'left' and 'right' as keys.
+
+    Returns:
+    --------
+    cluster_summary : pandas.DataFrame
+        A DataFrame with information on cluster area (mm^2), cluster_id, cluster location (MNI coordinates),
+        anatomical location, and cluster corrected p-value.
     """
 
     cluster_summary = pd.DataFrame({'hemisphere': [], 'clusid': [], 'cluster_area_mm2': [], 'mni_coord': [], 'anatomical_location': [], 'clus_pval_fwer': []})
@@ -373,57 +479,3 @@ def get_cluster_summary(result):
                 cluster_summary = cluster_summary.append({'hemisphere': hemisphere, 'clusid': clusid, 'cluster_area_mm2': f'{area:.0f}', 'mni_coord': peak_coord, 'anatomical_location': anatomical_loc, 'clus_pval_fwer': clus_pval}, ignore_index=True)
 
     return cluster_summary
-
-
-# def find_clusters(stat_data, threshold, threshold_is_min=False):
-#     """Segments cortical surface p-map at given threshold and finds surviving clusters
-#     Will do this for both hemispheres
-
-#     stat_data : dict{'left', 'right'}
-#         Statistical data for left and right hemisphere (e.g. pval, tval or zscore)
-#     threshold : float
-#         Value to threshold the statistical data
-#     threshold_is_min : bool | False
-#         If true, threshold is used as lower limit. Default is upper limit. 
-#     """
-
-#     indexed_clusters = {'left': np.zeros(len(stat_data['left']), ),
-#                                 'right': np.zeros(len(stat_data['right']), )}
-#     size = {'left': {}, 'right': {}}
-
-#     for hemisphere in ['left', 'right']: 
-#         surf = read_surface(SURFACE_GII[hemisphere])
-#         faces_all = surf.polys2D
-#         vert_idx = np.arange(faces_all.max() + 1)
-
-#         if threshold_is_min:
-#             not_used_indexes = set(vert_idx[stat_data[hemisphere].ravel() >= threshold])
-#         else:
-#             not_used_indexes = set(vert_idx[stat_data[hemisphere].ravel() <= threshold])
-
-#         # == Only used faces containing not_used indexes ==
-#         faces = faces_all[np.isin(faces_all, list(not_used_indexes)).any(axis=1)]
-
-#         # -------------------------
-#         # ----- Find clusters -----
-#         # -------------------------
-#         cluster_val = 1
-#         while not_used_indexes:
-#             in_cluster = {not_used_indexes.pop()}
-#             neighbours = set(faces[np.isin(faces, list(in_cluster)).any(axis=1)].ravel()) & not_used_indexes
-#             in_cluster = in_cluster | neighbours
-
-#             while True:
-#                 neighbours = set(faces[np.isin(faces, list(neighbours)).any(axis=1)].ravel()) & not_used_indexes
-#                 not_used_indexes = not_used_indexes - neighbours
-#                 if len(neighbours) == 0:
-#                     break
-#                 else:
-#                     in_cluster = in_cluster | neighbours
-
-#             indexed_clusters[hemisphere][list(in_cluster)] = cluster_val
-#             size[hemisphere][cluster_val] = len(in_cluster)
-
-#             cluster_val = cluster_val + 1
-
-#     return indexed_clusters, size
