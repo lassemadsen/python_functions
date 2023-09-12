@@ -15,7 +15,7 @@ SURFACE_OBJ = {'left': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09
                'right': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.obj'}
 SURFACE_BLUR = 20
 
-def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, timepoint, param_type, outdir, out_id=None, clean_surface=False):
+def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, timepoint, param_type, outdir, out_id=None, clean_surface=False, surface_blur=20):
     """Map parameter signals to mid surface 
 
     Parameters
@@ -38,6 +38,8 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, time
         Set alternative ID for output files (eg. collected pet_mr id)
     clean_surface : boolean | False
         If true, values equal -1 on the non-smoothed data and values less the 0 on the smoothed data are set to -1 (used for vertices outside FOV)
+    surface_blur : Int | 20
+        mm of bluring on the surface with geodesic Gaussian kernel
     """
 
     if out_id is None:
@@ -85,18 +87,18 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, time
             # Cortical thickness data is already in MNI space. Only needs blurring
             process_list.extend([
                 f'cp {t1t2_pipeline}/{mr_id}/{timepoint}/face/mapping/{hemisphere}.dist {out_surface_prefix}_std.dat',
-                f'blur_measurements.bin -iter {SURFACE_BLUR} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{SURFACE_BLUR}.dat'])
+                f'blur_measurements.bin -iter {surface_blur} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{surface_blur}.dat'])
         else:
             process_list.extend([
                 f'surfacesignals.bin {param_data} {mid_surface} {out_surface_prefix}.dat',
                 f'map_measurements.bin {SURFACE_OBJ[hemisphere]} {mid_surface} {mapping} {out_surface_prefix}.dat > {out_surface_prefix}_std.dat',
-                f'blur_measurements.bin -iter {SURFACE_BLUR} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{SURFACE_BLUR}.dat'])
+                f'blur_measurements.bin -iter {surface_blur} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{surface_blur}.dat'])
 
         succes = _run_process(process_list, out_id, timepoint, hemisphere, param_type)
 
         if succes:
             if clean_surface:
-                _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{SURFACE_BLUR}.dat')
+                _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
 
 def _run_process(process_list, sub_id, timepoint, hemisphere, measurement):
     """Run each command of procces list in bash 
