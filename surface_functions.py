@@ -454,7 +454,19 @@ def get_cluster_summary(result):
 
             for clusid in cluster_survived.clusid:
                 clus_pval = result[hemisphere].P['clus'][posneg][result[hemisphere].P['clus'][posneg].clusid == clusid].P.values[0]
-                peak_vertex = list(result[hemisphere].P['peak'][posneg][result[hemisphere].P['peak'][posneg].clusid == clusid].vertid)[0]
+
+                # Find peak vertex
+                clus_indices = np.where(result[hemisphere].P['clusid'][posneg] == clusid)[1]
+
+                peak_vertex = clus_indices[0]
+                max_value = abs(result[hemisphere].t[0])[peak_vertex]
+
+                for index in clus_indices:
+                    if abs(result[hemisphere].t[0][index]) > max_value:
+                        max_value = result[hemisphere].t[0][index]
+                        peak_vertex = index
+
+                # peak_vertex = list(result[hemisphere].P['peak'][posneg][result[hemisphere].P['peak'][posneg].clusid == clusid].vertid)[0]
 
                 anatomical_label = labels[peak_vertex]
                 anatomical_loc = aal_full[aal_full.val == anatomical_label].name.squeeze()
@@ -476,6 +488,6 @@ def get_cluster_summary(result):
 
                     area += A
 
-                cluster_summary = cluster_summary.append({'hemisphere': hemisphere, 'clusid': clusid, 'cluster_area_mm2': f'{area:.0f}', 'mni_coord': peak_coord, 'anatomical_location': anatomical_loc, 'clus_pval_fwer': clus_pval}, ignore_index=True)
+                cluster_summary = cluster_summary.append({'hemisphere': hemisphere, 'clusid': clusid, 'cluster_area_mm2': f'{area:.0f}', 'mni_coord': peak_coord, 'anatomical_location': anatomical_loc, 'clus_pval_fwer': f'{clus_pval:.2g}'}, ignore_index=True)
 
     return cluster_summary
