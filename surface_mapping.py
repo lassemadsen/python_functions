@@ -1,3 +1,13 @@
+""" The functions within this script can be used to map parametric data onto a cortical surface.
+
+The script is dependent on certian functions located on the hyades servers in /public/fristed/pack_develop/bin.
+Make sure to export this path, e.g. by adding "export PATH=$PATH:/public/fristed/pack_develop/bin" to ~/.bashrc.
+
+Author: Lasse Stensvig Madsen
+Mail: lasse.madsen@cfin.au.dk
+
+Last edited: 16/11 - 2023
+"""
 import subprocess
 import os
 import logging
@@ -38,7 +48,7 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, time
         Set alternative ID for output files (eg. collected pet_mr id)
     clean_surface : boolean | False
         If true, values equal -1 on the non-smoothed data and values less the 0 on the smoothed data are set to -1 (used for vertices outside FOV)
-    surface_blur : Int | 20
+    surface_blur : Int | 20
         mm of bluring on the surface with geodesic Gaussian kernel
     """
 
@@ -57,29 +67,75 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, time
 
         mid_surface = f'{outdir}/{out_id}_{timepoint}_mid_{hemisphere}_{param_type}.obj'
 
-        if t1_to_param_transform is not None:
-            process_list.extend([
-                f'midsurface.bin {mr_path}/face/surfaces/world/inner_{hemisphere}.obj {mr_path}/face/surfaces/world/outer_{hemisphere}.obj {mr_path}/face/measurements/outer_{hemisphere}.corr {mr_path}/face/surfaces/world/mid_{hemisphere}.obj',
-                f'xfminvert {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1.xfm {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1_inv.xfm',
-                f'transform_objects {mr_path}/face/surfaces/world/mid_{hemisphere}.obj {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1_inv.xfm {mr_path}/face/surfaces/native/mid_{hemisphere}.obj',
-                f'transform_objects {mr_path}/face/surfaces/native/mid_{hemisphere}.obj {t1_to_param_transform} {mid_surface}'])
-        else:
-            if param_type is 'thickness':
-                # Cortical thickness data is already mapped to MNI surface
-                pass
-            else: 
-                process_list.extend([
-                    f'midsurface.bin {mr_path}/face/surfaces/world/inner_{hemisphere}.obj {mr_path}/face/surfaces/world/outer_{hemisphere}.obj {mr_path}/face/measurements/outer_{hemisphere}.corr {mr_path}/face/surfaces/world/mid_{hemisphere}.obj',
-                    f'xfminvert {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1.xfm {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1_inv.xfm',
-                    f'transform_objects {mr_path}/face/surfaces/world/mid_{hemisphere}.obj {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1_inv.xfm {mr_path}/face/surfaces/native/mid_{hemisphere}.obj',
-                    f'cp {mr_path}/face/surfaces/native/mid_{hemisphere}.obj {mid_surface}'])
-        
+        process_list.extend([
+            f'midsurface.bin {mr_path}/face/surfaces/world/inner_{hemisphere}.obj {mr_path}/face/surfaces/world/outer_{hemisphere}.obj {mr_path}/face/measurements/outer_{hemisphere}.corr {mr_path}/face/surfaces/world/mid_{hemisphere}.obj',
+            f'xfminvert {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1.xfm {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1_inv.xfm',
+            f'transform_objects {mr_path}/face/surfaces/world/mid_{hemisphere}.obj {mr_path}/stx2/stx2_{mr_id}_{timepoint}_t1_inv.xfm {mr_path}/face/surfaces/native/mid_{hemisphere}.obj',
+            f'transform_objects {mr_path}/face/surfaces/native/mid_{hemisphere}.obj {t1_to_param_transform} {mid_surface}'])
+
         # ----- Map signals to surface -----
         # 1. Map parameter data onto surface
         # 2. Move surface to standard MNI space
         # 3. Blur signal on surface (along cortex) 
 
         mapping = f'{t1t2_pipeline}/{mr_id}/{timepoint}/face/mapping/{hemisphere}.corr'
+
+        out_surface_prefix = f'{outdir}/{out_id}_{timepoint}_mid_{hemisphere}_{param_type}'
+
+        process_list.extend([
+            f'surfacesignals.bin {param_data} {mid_surface} {out_surface_prefix}.dat',
+            f'map_measurements.bin {SURFACE_OBJ[hemisphere]} {mid_surface} {mapping} {out_surface_prefix}.dat > {out_surface_prefix}_std.dat',
+            f'blur_measurements.bin -iter {surface_blur} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{surface_blur}.dat'])
+
+        succes = _run_process(process_list, out_id, timepoint, hemisphere, param_type)
+
+        if succes:
+            if clean_surface:
+                _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
+
+
+def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, timepoint, param_type, outdir, out_id=None, clean_surface=False, surface_blur=20):
+    """Map parameter signals to mid surface 
+
+    Parameters
+    ----------
+    param_data : str
+        minc file of parameter data (in native space)
+    t1t2pipeline : str
+        Folder of t1t2pipeline containing FACE files
+    mr_id : str
+        MR ID of subject
+    timepoint : str
+        Timestamp of the MR image (where FACE is located)
+    parameter_type: str
+        Type of parameter
+    outdir : str
+        Location of outputs
+    out_id : str | None
+        Set alternative ID for output files (eg. collected pet_mr id)
+    clean_surface : boolean | False
+        If true, values equal -1 on the non-smoothed data and values less the 0 on the smoothed data are set to -1 (used for vertices outside FOV)
+    surface_blur : Int | 20
+        mm of bluring on the surface with geodesic Gaussian kernel
+    """
+
+    if out_id is None:
+        out_id = mr_id
+
+    mr_path = f'{t1t2_pipeline}/{mr_id}/{timepoint}'
+
+    for hemisphere in ['left', 'right']:
+        process_list = []
+        # ----- Create surface -----
+        # 1. Generate mid surface in MNI space
+
+        mid_surface = f'{mr_path}/face/surfaces/world/mid_{hemisphere}.obj'
+
+        process_list.extend([f'midsurface.bin {mr_path}/face/surfaces/world/inner_{hemisphere}.obj {mr_path}/face/surfaces/world/outer_{hemisphere}.obj {mr_path}/face/measurements/outer_{hemisphere}.corr {mid_surface}'])
+        
+        # ----- Map signals to surface -----
+        # 1. Map parameter data onto surface (MNI space)
+        # 3. Blur signal on surface (along cortex) 
 
         out_surface_prefix = f'{outdir}/{out_id}_{timepoint}_mid_{hemisphere}_{param_type}'
 
@@ -90,8 +146,7 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, time
                 f'blur_measurements.bin -iter {surface_blur} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{surface_blur}.dat'])
         else:
             process_list.extend([
-                f'surfacesignals.bin {param_data} {mid_surface} {out_surface_prefix}.dat',
-                f'map_measurements.bin {SURFACE_OBJ[hemisphere]} {mid_surface} {mapping} {out_surface_prefix}.dat > {out_surface_prefix}_std.dat',
+                f'surfacesignals.bin {param_data} {mid_surface} {out_surface_prefix}_std.dat',
                 f'blur_measurements.bin -iter {surface_blur} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{surface_blur}.dat'])
 
         succes = _run_process(process_list, out_id, timepoint, hemisphere, param_type)
@@ -99,6 +154,7 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, time
         if succes:
             if clean_surface:
                 _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
+
 
 def _run_process(process_list, sub_id, timepoint, hemisphere, measurement):
     """Run each command of procces list in bash 

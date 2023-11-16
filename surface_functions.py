@@ -1,4 +1,11 @@
-"""This script contain useful funcitons when working with cortical surface data in python
+"""This script contain useful functions when working with cortical surface data in python.
+
+Many functions are dependent on the Brainstat python module: https://brainstat.readthedocs.io/en/master/
+
+Author: Lasse Stensvig Madsen
+Mail: lasse.madsen@cfin.au.dk
+
+Last edited: 12/9 - 2023
 """
 
 import numpy as np
