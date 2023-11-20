@@ -225,7 +225,7 @@ def _clean_surface_after_smoothing(not_smoothed, smoothed):
     s.to_csv(smoothed, index=False)
 
 
-def clean_perfusion_surface_outside_fov(surface_dir):
+def clean_perfusion_surface_outside_fov(surface_dir, perf_type):
     """ Surface mapping are using linear interpolation to extract values from each voxel.
     Thus, in the edge of FOV, the values are not representing true perfusion parametric. 
 
@@ -237,71 +237,79 @@ def clean_perfusion_surface_outside_fov(surface_dir):
     The CBF maps is selected because it is fairly stable across all subjects and is normalised to WM.
     A CBF below 1 is hence very low and not likely to be "true" in tissue not affacted by extensive vascular damage. 
 
+    Parameters
+    ----------
+    surface_dir : str
+        Location of surfaces
+    perf_type : str [SE or GE]
+        Perfusion type: SE for spin echo, GE for gradient echo 
+
     """
 
 
     logger.info('Cleaning surface outside FOV')
 
-    for pwi_type in ['PARAMETRIC', 'SEPARAMETRIC']:
-        if pwi_type is 'SEPARAMETRIC':
-            cbf_thresh = 1
-        else:
-            cbf_thresh = 0.25
+    if perf_type == 'SE':
+        pwi_type = 'SEPARAMETRIC'
+        cbf_thresh = 1
+    elif perf_type == 'GE':
+        pwi_type = 'PARAMETRIC'
+        cbf_thresh = 0.25            
         
-        for hemisphere in ['left', 'right']: 
-            surf = read_surface(SURFACE_GII[hemisphere])
-            faces_all = surf.polys2D
-            vert_idx = np.arange(faces_all.max() + 1)
+    for hemisphere in ['left', 'right']: 
+        surf = read_surface(SURFACE_GII[hemisphere])
+        faces_all = surf.polys2D
+        vert_idx = np.arange(faces_all.max() + 1)
 
-            cbf_files = glob.glob(f'{surface_dir}/*{hemisphere}_{pwi_type}_CBF*blur20.dat')
+        cbf_files = glob.glob(f'{surface_dir}/*{hemisphere}_{pwi_type}_CBF*blur20.dat')
 
-            for f in cbf_files:
-                logger.info(f)
+        for f in cbf_files:
+            logger.info(f)
 
-                cbf = pd.read_csv(f)
-                sub_prefix = f.split(f'{hemisphere}_{pwi_type}_CBF')[0]
+            cbf = pd.read_csv(f)
+            sub_prefix = f.split(f'{hemisphere}_{pwi_type}_CBF')[0]
 
-                outside_fov_clean = set()
+            outside_fov_clean = set()
 
-                # -- Threshold data --
-                outside_fov_not_used = set(vert_idx[cbf.values.ravel() == -1])
-                below_thresh = set(vert_idx[cbf.values.ravel() < cbf_thresh])
+            # -- Threshold data --
+            outside_fov_not_used = set(vert_idx[cbf.values.ravel() == -1])
+            below_thresh = set(vert_idx[cbf.values.ravel() < cbf_thresh])
 
-                # --- Only used faces below cbf threshold ---
-                faces = faces_all[np.isin(faces_all, list(below_thresh)).any(axis=1)]
+            # --- Only used faces below cbf threshold ---
+            faces = faces_all[np.isin(faces_all, list(below_thresh)).any(axis=1)]
 
-                # ----- Find clusters -----
-                while outside_fov_not_used:
-                    outside = {outside_fov_not_used.pop()}
+            # ----- Find clusters -----
+            while outside_fov_not_used:
+                outside = {outside_fov_not_used.pop()}
 
-                    neighbours = set(faces[np.isin(faces, list(outside)).any(axis=1)].ravel()) & below_thresh
-                    outside = outside | neighbours
+                neighbours = set(faces[np.isin(faces, list(outside)).any(axis=1)].ravel()) & below_thresh
+                outside = outside | neighbours
 
-                    while True:
-                        neighbours = set(faces[np.isin(faces, list(neighbours)).any(axis=1)].ravel()) & below_thresh
-                        below_thresh = below_thresh - neighbours
-                        if len(neighbours) == 0:
-                            break
-                        else:
-                            outside = outside | neighbours
+                while True:
+                    neighbours = set(faces[np.isin(faces, list(neighbours)).any(axis=1)].ravel()) & below_thresh
+                    below_thresh = below_thresh - neighbours
+                    if len(neighbours) == 0:
+                        break
+                    else:
+                        outside = outside | neighbours
 
-                    outside_fov_clean.update(outside)
-                    outside_fov_not_used = outside_fov_not_used - outside
+                outside_fov_clean.update(outside)
+                outside_fov_not_used = outside_fov_not_used - outside
 
 
-                for param in ['CBF', 'CBV', 'MTT', 'CTH', 'RTH', 'PTO2']:
-                    if pwi_type is 'PARAMETRIC' and param is 'PTO2':
-                        continue
+            for param in ['CBF', 'CBV', 'MTT', 'CTH', 'RTH', 'PTO2']:
+                if pwi_type is 'PARAMETRIC' and param is 'PTO2':
+                    continue
 
-                    param_file = glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_{param}*blur20.dat')
-                    outfile = f'{param_file[0].split(".dat")[0]}_clean.dat'
+                param_file = glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_{param}*blur20.dat')
+                outfile = f'{param_file[0].split(".dat")[0]}_clean.dat'
 
-                    if os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
-                        continue
-                    
-                    df = pd.read_csv(param_file[0])
-                    df.iloc[list(outside_fov_clean)] = -1
-                    df.to_csv(outfile, index=None)
+                if os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
+                    continue
+                
+                df = pd.read_csv(param_file[0])
+                df.iloc[list(outside_fov_clean)] = -1
+                df.to_csv(outfile, index=None)
                 
 def clean_VSI_outside_FOV(surface_dir):
     """ Remove vertices not is both the SE and GE FOV
