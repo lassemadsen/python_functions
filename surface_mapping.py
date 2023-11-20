@@ -206,7 +206,6 @@ def _run_process(process_list, sub_id, timepoint, hemisphere, measurement):
 
 def _clean_surface_after_smoothing(not_smoothed, smoothed):
     """Script to clean surface after smoothing to ensure that vertices outside FOV is set to -1
-    Furthermore, all values under 0.5 is set to -1. (Perfusion parameter values under 0.5 are very low and therfore very likely to be casued by interpolation with voxels outside FOV)
     
     Parameter
     ---------
@@ -220,7 +219,6 @@ def _clean_surface_after_smoothing(not_smoothed, smoothed):
     s = pd.read_csv(smoothed)
 
     s[ns==-1] = -1
-    s[s < 0.5] = -1
 
     s.to_csv(smoothed, index=False)
 
