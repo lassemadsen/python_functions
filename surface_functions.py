@@ -115,6 +115,10 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, clust
         A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
         'size', and 'p'.
     """
+    if not correction in {'rft', 'fdr'} and correction is not None:
+        print('Wrong correction method! Should be "rft" or "fdr" or None. Please try again.')
+        return
+
     result = {'left': [], 'right': []}
 
     group1_subjects = data_group1['left'].columns
@@ -180,6 +184,10 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
         A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
         'size', and 'p'.
     """
+    if not correction in {'rft', 'fdr'} and correction is not None:
+        print('Wrong correction method! Should be "rft" or "fdr" or None. Please try again.')
+        return
+
     result = {'left': [], 'right': []}
 
     common_subjects = sorted(list(set(data1['left'].columns) & set(data2['left'].columns)))
@@ -208,7 +216,11 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
     print(f'N={len(common_subjects)}')
 
     cluster_mask = get_cluster_mask(result, correction, alpha)
-    cluster_summary = get_cluster_summary(result)
+
+    if correction is None:
+        cluster_summary = None
+    else:
+        cluster_summary = get_cluster_summary(result)
     
     return result, common_subjects, cluster_mask, cluster_summary
 
@@ -242,6 +254,9 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
         A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
         'size', and 'p'.
     """
+    if not correction in {'rft', 'fdr'} and correction is not None:
+        print('Wrong correction method! Should be "rft" or "fdr" or None. Please try again.')
+        return
 
     result = {'left': [], 'right': []}
 
@@ -268,7 +283,11 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
         result[hemisphere] = slm
     
     cluster_mask = get_cluster_mask(result, correction, alpha)
-    cluster_summary = get_cluster_summary(result)
+    
+    if correction is None:
+        cluster_summary = None
+    else:
+        cluster_summary = get_cluster_summary(result)
     
     return result, common_subjects, cluster_mask, cluster_summary
 
@@ -284,6 +303,7 @@ def correlation_pearson(param, predictor):
         Predictiors is a pandas dataframe with subject_id as column headers (same id as in surface_data)
         If more than one row, the rest of the rows are considere covariates
     """
+    
     result = {'left': [], 'right': []}
 
     common_subjects = sorted(list(set(param['left'].columns) & set(param['right'].columns) & 
@@ -343,6 +363,10 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
         'size', and 'p'.
     """
+    if not correction in {'rft', 'fdr'} and correction is not None:
+        print('Wrong correction method! Should be "rft" or "fdr" or None. Please try again.')
+        return
+    
     result = {'left': [], 'right': []}
 
     common_subjects = sorted(list(set(surface_data['left'].columns) & set(surface_data['right'].columns) & 
@@ -398,7 +422,10 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         result[hemisphere] = slm
 
     cluster_mask = get_cluster_mask(result, correction, alpha)
-    cluster_summary = get_cluster_summary(result)
+    if correction is None:
+        cluster_summary = None
+    else:
+        cluster_summary = get_cluster_summary(result)
 
     return result, common_subjects, cluster_mask, cluster_summary
     
