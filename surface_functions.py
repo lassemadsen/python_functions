@@ -374,8 +374,9 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
 
     for hemisphere in ['left', 'right']:
         data = surface_data[hemisphere][common_subjects].T
+        data_predictor = surface_data_predictor[hemisphere][common_subjects].T
 
-        mask = ~data.isna().any(axis=0).values
+        mask = (~data.isna().any(axis=0) & ~data_predictor.isna().any(axis=0)).values
 
         # Initialise t values to nan
         t = np.zeros(mask.shape)
@@ -386,7 +387,7 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         # Run model for each vertex
         for i in vert_list:
             # --- Correlation with other surface ---
-            term = FixedEffect(surface_data_predictor[hemisphere][common_subjects].iloc[i,:].values.T)
+            term = FixedEffect(data_predictor[i].values)
             model = term
             contrast = model.x0
 
@@ -472,8 +473,7 @@ def get_cluster_summary(result):
         A DataFrame with information on cluster area (mm^2), cluster_id, cluster location (MNI coordinates),
         anatomical location, and cluster corrected p-value.
     """
-
-    cluster_summary = pd.DataFrame({'hemisphere': [], 'clusid': [], 'cluster_area_mm2': [], 'mni_coord': [], 'anatomical_location': [], 'clus_pval_fwer': []})
+    cluster_summary = pd.DataFrame({'clusid': [], 'Anatomical location (peak)': [], 'Hemisphere': [], 'Cluster area (mm2)': [], 'MNI coordinates (x,y,z)': [], 'Cluster FWE p-value': []})
 
     aal_full = pd.read_csv(ATLAS_LOOKUP, names=['val', 'name'])
 
@@ -504,6 +504,8 @@ def get_cluster_summary(result):
 
                 anatomical_label = labels[peak_vertex]
                 anatomical_loc = aal_full[aal_full.val == anatomical_label].name.squeeze()
+                anatomical_loc = anatomical_loc.replace(' left', '')
+                anatomical_loc = anatomical_loc.replace(' right', '')
 
                 peak_coord = mni_coord[peak_vertex]
                 peak_coord = [round(c) for c in peak_coord] # Round coordinates
@@ -522,6 +524,6 @@ def get_cluster_summary(result):
 
                     area += A
 
-                cluster_summary = cluster_summary.append({'hemisphere': hemisphere, 'clusid': clusid, 'cluster_area_mm2': f'{area:.0f}', 'mni_coord': peak_coord, 'anatomical_location': anatomical_loc, 'clus_pval_fwer': f'{clus_pval:.2g}'}, ignore_index=True)
+                cluster_summary = cluster_summary.append({'clusid': clusid, 'Anatomical location (peak)': anatomical_loc, 'Hemisphere': hemisphere, 'Cluster area (mm2)': f'{area:.0f}', 'MNI coordinates (x,y,z)': peak_coord, 'Cluster FWE p-value': f'{clus_pval:.2g}'}, ignore_index=True)
 
     return cluster_summary
