@@ -299,13 +299,8 @@ def clean_perfusion_surface_outside_fov(surface_dir, perf_type):
                 outside_fov_not_used = outside_fov_not_used - outside
 
 
-            for param_file in sorted(glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_*blur20.dat'))
+            for param_file in sorted(glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_*blur20.dat')):
             
-            # ['CBF', 'CBV', 'MTT', 'CTH', 'RTH', 'PTO2']:
-            #     if pwi_type is 'PARAMETRIC' and param is 'PTO2':
-            #         continue
-
-                # param_file = glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_{param}*blur20.dat')
                 outfile = f'{param_file.split(".dat")[0]}_clean.dat'
 
                 if os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
