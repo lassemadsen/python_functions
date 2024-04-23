@@ -256,7 +256,7 @@ def clean_perfusion_surface_outside_fov(surface_dir, perf_type):
         cbf_thresh = 1
     elif perf_type == 'GE':
         pwi_type = 'PARAMETRIC'
-        cbf_thresh = 0.25            
+        cbf_thresh = 1           
         
     for hemisphere in ['left', 'right']: 
         surf = read_surface(SURFACE_GII[hemisphere])
@@ -299,17 +299,19 @@ def clean_perfusion_surface_outside_fov(surface_dir, perf_type):
                 outside_fov_not_used = outside_fov_not_used - outside
 
 
-            for param in ['CBF', 'CBV', 'MTT', 'CTH', 'RTH', 'PTO2']:
-                if pwi_type is 'PARAMETRIC' and param is 'PTO2':
-                    continue
+            for param_file in sorted(glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_*blur20.dat'))
+            
+            # ['CBF', 'CBV', 'MTT', 'CTH', 'RTH', 'PTO2']:
+            #     if pwi_type is 'PARAMETRIC' and param is 'PTO2':
+            #         continue
 
-                param_file = glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_{param}*blur20.dat')
-                outfile = f'{param_file[0].split(".dat")[0]}_clean.dat'
+                # param_file = glob.glob(f'{sub_prefix}{hemisphere}_{pwi_type}_{param}*blur20.dat')
+                outfile = f'{param_file.split(".dat")[0]}_clean.dat'
 
                 if os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
                     continue
                 
-                df = pd.read_csv(param_file[0])
+                df = pd.read_csv(param_file)
                 df.iloc[list(outside_fov_clean)] = -1
                 df.to_csv(outfile, index=None)
                 
