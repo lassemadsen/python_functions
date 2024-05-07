@@ -153,7 +153,10 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, clust
     print(f'Group 1: N={len(group1_subjects)}, group 2: N={len(group2_subjects)}')
 
     cluster_mask = get_cluster_mask(result, correction, alpha)
-    cluster_summary = get_cluster_summary(result)
+    if correction is None:
+        cluster_summary = None
+    else:
+        cluster_summary = get_cluster_summary(result)
 
     return result, cluster_mask, cluster_summary
 
