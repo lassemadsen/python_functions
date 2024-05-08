@@ -25,7 +25,7 @@ SURFACE_OBJ = {'left': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09
                'right': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.obj'}
 SURFACE_BLUR = 20
 
-def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_tp, param_tp, param_type, outdir, out_id=None, clean_surface=False, surface_blur=20):
+def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, clean_surface=False, surface_blur=20):
     """Map parameter signals to mid surface 
 
     Parameters
@@ -42,8 +42,8 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_t
         Timestamp of the MR image (where FACE is located)
     param_tp : str
         Timestamp of the parametric image (used for output naming)
-    parameter_type: str
-        Type of parameter
+    param_name: str
+        Name of parameter (for output files)
     outdir : str
         Location of outputs
     out_id : str | None
@@ -67,7 +67,7 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_t
         # 3. Move surface to native subject space using inverted transformation
         # 4. Move to parameter native space
 
-        mid_surface = f'{outdir}/{out_id}_{param_tp}_mid_{hemisphere}_{param_type}.obj'
+        mid_surface = f'{outdir}/{out_id}_{param_tp}_mid_{hemisphere}_{param_name}.obj'
 
         process_list.extend([
             f'midsurface.bin {mr_path}/face/surfaces/world/inner_{hemisphere}.obj {mr_path}/face/surfaces/world/outer_{hemisphere}.obj {mr_path}/face/measurements/outer_{hemisphere}.corr {mr_path}/face/surfaces/world/mid_{hemisphere}.obj',
@@ -82,21 +82,21 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_t
 
         mapping = f'{t1t2_pipeline}/{mr_id}/{mr_tp}/face/mapping/{hemisphere}.corr'
 
-        out_surface_prefix = f'{outdir}/{out_id}_{param_tp}_mid_{hemisphere}_{param_type}'
+        out_surface_prefix = f'{outdir}/{out_id}_{param_tp}_mid_{hemisphere}_{param_name}'
 
         process_list.extend([
             f'surfacesignals.bin {param_data} {mid_surface} {out_surface_prefix}.dat',
             f'map_measurements.bin {SURFACE_OBJ[hemisphere]} {mid_surface} {mapping} {out_surface_prefix}.dat > {out_surface_prefix}_std.dat',
             f'blur_measurements.bin -iter {surface_blur} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{surface_blur}.dat'])
 
-        succes = _run_process(process_list, out_id, param_tp, hemisphere, param_type)
+        succes = _run_process(process_list, out_id, param_tp, hemisphere, param_name)
 
         if succes:
             if clean_surface:
                 _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
 
 
-def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_type, outdir, out_id=None, clean_surface=False, surface_blur=20):
+def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, clean_surface=False, surface_blur=20):
     """Map parameter signals to mid surface 
 
     Parameters
@@ -111,7 +111,7 @@ def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_
         Timestamp of the MR image (where FACE is located)
     param_tp : str
         Timestamp of the parametric image (used for output naming)
-    parameter_type: str
+    param_name: str
         Type of parameter
     outdir : str
         Location of outputs
@@ -141,11 +141,11 @@ def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_
         # 1. Map parameter data onto surface (MNI space)
         # 3. Blur signal on surface (along cortex) 
 
-        out_surface_prefix = f'{outdir}/{out_id}_{param_tp}_mid_{hemisphere}_{param_type}'
+        out_surface_prefix = f'{outdir}/{out_id}_{param_tp}_mid_{hemisphere}_{param_name}'
 
         mapping = f'{t1t2_pipeline}/{mr_id}/{mr_tp}/face/mapping/{hemisphere}.corr'
 
-        if param_type is 'thickness':
+        if param_name is 'thickness':
             # Cortical thickness data is already in MNI space. Only needs blurring
             process_list.extend([
                 f'cp {t1t2_pipeline}/{mr_id}/{mr_tp}/face/mapping/{hemisphere}.dist {out_surface_prefix}_std.dat',
@@ -156,7 +156,7 @@ def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_
                 f'map_measurements.bin {SURFACE_OBJ[hemisphere]} {mid_surface} {mapping} {out_surface_prefix}.dat > {out_surface_prefix}_std.dat',
                 f'blur_measurements.bin -iter {surface_blur} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{surface_blur}.dat'])
 
-        succes = _run_process(process_list, out_id, param_tp, hemisphere, param_type)
+        succes = _run_process(process_list, out_id, param_tp, hemisphere, param_name)
 
         if succes:
             if clean_surface:
@@ -243,8 +243,8 @@ def clean_perfusion_surface_outside_fov(surface_dir, perf_type):
     ----------
     surface_dir : str
         Location of surfaces
-    perf_type : str [SE or GE]
-        Perfusion type: SE for spin echo, GE for gradient echo 
+    perf_type : str [SEPWI or PWI]
+        Perfusion type: SEPWI for spin echo, PWI for gradient echo 
 
     """
 
@@ -252,11 +252,11 @@ def clean_perfusion_surface_outside_fov(surface_dir, perf_type):
     logger.info('Cleaning surface outside FOV')
 
     if perf_type == 'SE':
-        pwi_type = 'SEPARAMETRIC'
-        cbf_thresh = 1
+        pwi_type = 'SEPWI'
     elif perf_type == 'GE':
-        pwi_type = 'PARAMETRIC'
-        cbf_thresh = 1           
+        pwi_type = 'PWI'
+
+    cbf_thresh = 1           
         
     for hemisphere in ['left', 'right']: 
         surf = read_surface(SURFACE_GII[hemisphere])
