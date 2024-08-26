@@ -6,7 +6,7 @@ Make sure to export this path, e.g. by adding "export PATH=$PATH:/public/fristed
 Author: Lasse Stensvig Madsen
 Mail: lasse.madsen@cfin.au.dk
 
-Last edited: 16/11 - 2023
+Last edited: 26/8 - 2024
 """
 import subprocess
 import os
