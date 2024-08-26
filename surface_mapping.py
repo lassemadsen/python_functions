@@ -67,7 +67,7 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_t
 
         process_list.extend([
             f'midsurface.bin {mr_path}/face/surfaces/world/inner_{hemisphere}.obj {mr_path}/face/surfaces/world/outer_{hemisphere}.obj {mr_path}/face/measurements/outer_{hemisphere}.corr {mr_path}/face/surfaces/world/mid_{hemisphere}.obj',
-            f'xfminvert {mr_path}/stx2/stx2_{mr_id}_{mr_tp}_t1.xfm {mr_path}/stx2/stx2_{mr_id}_{mr_tp}_t1_inv.xfm',
+            f'xfminvert {mr_path}/stx2/stx2_{mr_id}_{mr_tp}_t1.xfm {mr_path}/stx2/stx2_{mr_id}_{mr_tp}_t1_inv.xfm -clobber',
             f'transform_objects {mr_path}/face/surfaces/world/mid_{hemisphere}.obj {mr_path}/stx2/stx2_{mr_id}_{mr_tp}_t1_inv.xfm {mr_path}/face/surfaces/native/mid_{hemisphere}.obj',
             f'transform_objects {mr_path}/face/surfaces/native/mid_{hemisphere}.obj {t1_to_param_transform} {mid_surface}'])
 
