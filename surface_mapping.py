@@ -25,7 +25,7 @@ SURFACE_OBJ = {'left': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09
                'right': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.obj'}
 SURFACE_BLUR = 20
 
-def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, clean_surface=False, surface_blur=20):
+def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, clean_surface=False, surface_blur=20, clobber=False):
     """Map parameter signals to mid surface 
 
     Parameters
@@ -89,14 +89,14 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_t
             f'map_measurements.bin {SURFACE_OBJ[hemisphere]} {mid_surface} {mapping} {out_surface_prefix}.dat > {out_surface_prefix}_std.dat',
             f'blur_measurements.bin -iter {surface_blur} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{surface_blur}.dat'])
 
-        succes = _run_process(process_list, out_id, param_tp, hemisphere, param_name)
+        succes = _run_process(process_list, out_id, param_tp, hemisphere, param_name, clobber)
 
         if succes:
             if clean_surface:
                 _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
 
 
-def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, clean_surface=False, surface_blur=20):
+def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, clean_surface=False, surface_blur=20, clobber=False):
     """Map parameter signals to mid surface 
 
     Parameters
@@ -156,14 +156,14 @@ def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_
                 f'map_measurements.bin {SURFACE_OBJ[hemisphere]} {mid_surface} {mapping} {out_surface_prefix}.dat > {out_surface_prefix}_std.dat',
                 f'blur_measurements.bin -iter {surface_blur} {SURFACE_OBJ[hemisphere]} {out_surface_prefix}_std.dat > {out_surface_prefix}_std_blur{surface_blur}.dat'])
 
-        succes = _run_process(process_list, out_id, param_tp, hemisphere, param_name)
+        succes = _run_process(process_list, out_id, param_tp, hemisphere, param_name, clobber)
 
         if succes:
             if clean_surface:
                 _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
 
 
-def _run_process(process_list, sub_id, timepoint, hemisphere, measurement):
+def _run_process(process_list, sub_id, timepoint, hemisphere, measurement, clobber):
     """Run each command of procces list in bash 
 
     Parameters
@@ -187,7 +187,7 @@ def _run_process(process_list, sub_id, timepoint, hemisphere, measurement):
 
     output_file = process_list[-1].split(' ')[-1] # The final output file of the procces list.
     # If the ouput_file exists, the entire process list is skipped
-    if os.path.isfile(output_file) and os.path.getsize(output_file) > 0:
+    if not clobber and os.path.isfile(output_file) and os.path.getsize(output_file) > 0:
         logger.info(f'{output_file} exists. Skipping...')
         return
     
@@ -195,7 +195,7 @@ def _run_process(process_list, sub_id, timepoint, hemisphere, measurement):
     logger.info(f'{sub_id}, {timepoint}: mapping {measurement} to {hemisphere} surface')
 
     for process in process_list:
-        if os.path.isfile(process.split(' ')[-1]) and os.path.getsize(process.split(' ')[-1]) > 0: # Check if output file of each process already exists
+        if not clobber and os.path.isfile(process.split(' ')[-1]) and os.path.getsize(process.split(' ')[-1]) > 0: # Check if output file of each process already exists
             continue
 
         try:
@@ -227,7 +227,7 @@ def _clean_surface_after_smoothing(not_smoothed, smoothed):
     s.to_csv(smoothed, index=False)
 
 
-def clean_perfusion_surface_outside_fov(surface_dir, perf_type):
+def clean_perfusion_surface_outside_fov(surface_dir, perf_type, clobber):
     """ Surface mapping are using linear interpolation to extract values from each voxel.
     Thus, in the edge of FOV, the values are not representing true perfusion parametric. 
 
@@ -303,14 +303,14 @@ def clean_perfusion_surface_outside_fov(surface_dir, perf_type):
             
                 outfile = f'{param_file.split(".dat")[0]}_clean.dat'
 
-                if os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
+                if not clobber and os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
                     continue
                 
                 df = pd.read_csv(param_file)
                 df.iloc[list(outside_fov_clean)] = -1
                 df.to_csv(outfile, index=None)
                 
-def clean_VSI_outside_FOV(surface_dir):
+def clean_VSI_outside_FOV(surface_dir, clobber):
     """ Remove vertices not is both the SE and GE FOV
     """
 
@@ -331,7 +331,7 @@ def clean_VSI_outside_FOV(surface_dir):
 
             outfile = f'{vsi_file.split(".dat")[0]}_clean.dat'
 
-            if os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
+            if not clobber and os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
                 continue
 
             vsi.iloc[outside_fov_clean] = -1
