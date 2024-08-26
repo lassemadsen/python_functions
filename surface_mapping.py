@@ -10,14 +10,10 @@ Last edited: 16/11 - 2023
 """
 import subprocess
 import os
-import logging
 import pandas as pd
 import numpy as np
 import glob
 from brainspace.mesh.mesh_io import read_surface
-
-logging.basicConfig(format='%(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 SURFACE_GII = {'left': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_left_smooth.gii',
                'right': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.gii'}
@@ -188,11 +184,11 @@ def _run_process(process_list, sub_id, timepoint, hemisphere, measurement, clobb
     output_file = process_list[-1].split(' ')[-1] # The final output file of the procces list.
     # If the ouput_file exists, the entire process list is skipped
     if not clobber and os.path.isfile(output_file) and os.path.getsize(output_file) > 0:
-        logger.info(f'{output_file} exists. Skipping...')
+        print(f'{output_file} exists. Skipping...')
         return
     
     # Start processing    
-    logger.info(f'{sub_id}, {timepoint}: mapping {measurement} to {hemisphere} surface')
+    print(f'{sub_id}, {timepoint}: mapping {measurement} to {hemisphere} surface')
 
     for process in process_list:
         if not clobber and os.path.isfile(process.split(' ')[-1]) and os.path.getsize(process.split(' ')[-1]) > 0: # Check if output file of each process already exists
@@ -202,7 +198,7 @@ def _run_process(process_list, sub_id, timepoint, hemisphere, measurement, clobb
             subprocess.check_output(process, shell=True, stderr=subprocess.STDOUT)
             succes = 1 
         except:
-            logger.error(f'Error when proccesing: {process}')
+            print(f'Error when proccesing: {process}')
             succes = 0
             return succes
     
@@ -249,7 +245,7 @@ def clean_perfusion_surface_outside_fov(surface_dir, perf_type, clobber):
     """
 
 
-    logger.info('Cleaning surface outside FOV')
+    print('Cleaning surface outside FOV')
 
     if perf_type == 'SE':
         pwi_type = 'SEPWI'
@@ -266,7 +262,7 @@ def clean_perfusion_surface_outside_fov(surface_dir, perf_type, clobber):
         cbf_files = glob.glob(f'{surface_dir}/*{hemisphere}_{pwi_type}_CBF*blur20.dat')
 
         for f in cbf_files:
-            logger.info(f)
+            print(f)
 
             cbf = pd.read_csv(f)
             sub_prefix = f.split(f'{hemisphere}_{pwi_type}_CBF')[0]
