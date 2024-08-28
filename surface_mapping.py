@@ -6,7 +6,7 @@ Make sure to export this path, e.g. by adding "export PATH=$PATH:/public/fristed
 Author: Lasse Stensvig Madsen
 Mail: lasse.madsen@cfin.au.dk
 
-Last edited: 26/8 - 2024
+Last edited: 28/8 - 2024
 """
 import subprocess
 import os
@@ -21,7 +21,7 @@ SURFACE_OBJ = {'left': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09
                'right': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.obj'}
 SURFACE_BLUR = 20
 
-def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, clean_surface=False, surface_blur=20, clobber=False):
+def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, clean_surface=False, surface_blur=20, bg_val=None, clobber=False):
     """Map parameter signals to mid surface 
 
     Parameters
@@ -48,6 +48,10 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_t
         If true, values equal -1 on the non-smoothed data and values less the 0 on the smoothed data are set to -1 (used for vertices outside FOV)
     surface_blur : Int | 20
         mm of bluring on the surface with geodesic Gaussian kernel
+    bg_val : Int | None
+        If set, vertices with this value (background) is set to -1 (same standard if surface is outside image)
+    clobber : Bool | False
+        Set to True to overwrite existing files
     """
 
     if out_id is None:
@@ -88,11 +92,16 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_t
         succes = _run_process(process_list, out_id, param_tp, hemisphere, param_name, clobber)
 
         if succes:
+            if bg_val is not None:
+                _exclude_bg(f'{out_surface_prefix}.dat')
+                _exclude_bg(f'{out_surface_prefix}_std.dat')
+                _exclude_bg(f'{out_surface_prefix}_std_blur{surface_blur}.dat')
+                
             if clean_surface:
                 _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
 
 
-def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, clean_surface=False, surface_blur=20, clobber=False):
+def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, clean_surface=False, surface_blur=20, bg_val=None, clobber=False):
     """Map parameter signals to mid surface 
 
     Parameters
@@ -117,6 +126,10 @@ def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_
         If true, values equal -1 on the non-smoothed data and values less the 0 on the smoothed data are set to -1 (used for vertices outside FOV)
     surface_blur : Int | 20
         mm of bluring on the surface with geodesic Gaussian kernel
+    bg_val : Int | None
+        If set, vertices with this value (background) is set to -1 (same standard if surface is outside image)
+    clobber : Bool | False
+        Set to True to overwrite existing files
     """
 
     if out_id is None:
@@ -155,6 +168,11 @@ def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_
         succes = _run_process(process_list, out_id, param_tp, hemisphere, param_name, clobber)
 
         if succes:
+            if bg_val is not None:
+                _exclude_bg(f'{out_surface_prefix}.dat')
+                _exclude_bg(f'{out_surface_prefix}_std.dat')
+                _exclude_bg(f'{out_surface_prefix}_std_blur{surface_blur}.dat')
+                
             if clean_surface:
                 _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
 
@@ -203,6 +221,21 @@ def _run_process(process_list, sub_id, timepoint, hemisphere, measurement, clobb
             return succes
     
     return succes
+
+def _exclude_bg(bg_val, data_file):
+    """ Set background voxels to -1 (same standard if surface is outside image)
+
+    Parameter
+    ---------
+    bg_val : int
+        Value of background voxels. Vertices with this value is set to -1
+    data : str
+        File location of parameter map to correct
+    """
+    data = pd.read_csv(data_file)
+    data[data == bg_val] = -1
+
+    data.to_csv(data_file, index=False)
 
 def _clean_surface_after_smoothing(not_smoothed, smoothed):
     """Script to clean surface after smoothing to ensure that vertices outside FOV is set to -1
