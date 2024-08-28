@@ -93,9 +93,9 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_t
 
         if succes:
             if bg_val is not None:
-                _exclude_bg(f'{out_surface_prefix}.dat')
-                _exclude_bg(f'{out_surface_prefix}_std.dat')
-                _exclude_bg(f'{out_surface_prefix}_std_blur{surface_blur}.dat')
+                _exclude_bg(bg_val, f'{out_surface_prefix}.dat')
+                _exclude_bg(bg_val, f'{out_surface_prefix}_std.dat')
+                _exclude_bg(bg_val, f'{out_surface_prefix}_std_blur{surface_blur}.dat')
                 
             if clean_surface:
                 _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
@@ -169,9 +169,9 @@ def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_
 
         if succes:
             if bg_val is not None:
-                _exclude_bg(f'{out_surface_prefix}.dat')
-                _exclude_bg(f'{out_surface_prefix}_std.dat')
-                _exclude_bg(f'{out_surface_prefix}_std_blur{surface_blur}.dat')
+                _exclude_bg(bg_val, f'{out_surface_prefix}.dat')
+                _exclude_bg(bg_val, f'{out_surface_prefix}_std.dat')
+                _exclude_bg(bg_val, f'{out_surface_prefix}_std_blur{surface_blur}.dat')
                 
             if clean_surface:
                 _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
