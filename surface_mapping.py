@@ -292,13 +292,13 @@ def clean_perfusion_surface_outside_fov(surface_dir, perf_type, clobber):
         faces_all = surf.polys2D
         vert_idx = np.arange(faces_all.max() + 1)
 
-        cbf_files = glob.glob(f'{surface_dir}/*{hemisphere}_{pwi_type}_CBF*blur20.dat')
+        cbf_files = glob.glob(f'{surface_dir}/*{hemisphere}_{pwi_type}_CBF_NORMAL*blur20.dat')
 
         for f in cbf_files:
             print(f)
 
             cbf = pd.read_csv(f)
-            sub_prefix = f.split(f'{hemisphere}_{pwi_type}_CBF')[0]
+            sub_prefix = f.split(f'{hemisphere}_{pwi_type}_CBF_NORMAL')[0]
 
             outside_fov_clean = set()
 
@@ -338,30 +338,3 @@ def clean_perfusion_surface_outside_fov(surface_dir, perf_type, clobber):
                 df = pd.read_csv(param_file)
                 df.iloc[list(outside_fov_clean)] = -1
                 df.to_csv(outfile, index=None)
-                
-def clean_VSI_outside_FOV(surface_dir, clobber):
-    """ Remove vertices not is both the SE and GE FOV
-    """
-
-    for hemisphere in ['left', 'right']: 
-        vsi_files = glob.glob(f'{surface_dir}/*{hemisphere}_VSI*blur20.dat')
-
-        for vsi_file in vsi_files:
-            vsi = pd.read_csv(vsi_file)
-            sub_prefix = vsi_file.split(f'{hemisphere}_VSI')[0]
-
-            se_cbv_file = glob.glob(f'{sub_prefix}{hemisphere}_SEPARAMETRIC_CBV*blur20.dat')
-            ge_cbv_file = glob.glob(f'{sub_prefix}{hemisphere}_PARAMETRIC_CBV*blur20.dat')
-
-            se_cbv = pd.read_csv(se_cbv_file[0])
-            ge_cbv = pd.read_csv(ge_cbv_file[0])
-
-            outside_fov_clean = ((se_cbv < 0) | (ge_cbv < 0)).values.ravel()
-
-            outfile = f'{vsi_file.split(".dat")[0]}_clean.dat'
-
-            if not clobber and os.path.isfile(outfile) and os.path.getsize(outfile) > 0:
-                continue
-
-            vsi.iloc[outside_fov_clean] = -1
-            vsi.to_csv(outfile, index=None)
