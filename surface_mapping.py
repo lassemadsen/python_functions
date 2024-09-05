@@ -256,7 +256,7 @@ def _clean_surface_after_smoothing(not_smoothed, smoothed):
     s.to_csv(smoothed, index=False)
 
 
-def clean_perfusion_surface_outside_fov(surface_dir, perf_type, clobber=False):
+def clean_perfusion_surface_outside_fov(surface_dir, pwi_type, clobber=False):
     """ Surface mapping are using linear interpolation to extract values from each voxel.
     Thus, in the edge of FOV, the values are not representing true perfusion parametric. 
 
@@ -277,13 +277,7 @@ def clean_perfusion_surface_outside_fov(surface_dir, perf_type, clobber=False):
 
     """
 
-
     print('Cleaning surface outside FOV')
-
-    if perf_type == 'SE':
-        pwi_type = 'SEPWI'
-    elif perf_type == 'GE':
-        pwi_type = 'PWI'
 
     cbf_thresh = 1           
         
