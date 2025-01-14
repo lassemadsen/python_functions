@@ -123,6 +123,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, clust
 
     group1_subjects = data_group1['left'].columns
     group2_subjects = data_group2['left'].columns
+    print(f'Group 1: N={len(group1_subjects)}, group 2: N={len(group2_subjects)}')
 
     groups = pd.DataFrame({'group': ['0']*len(group1_subjects) + ['1']*len(group2_subjects)})
 
@@ -147,7 +148,6 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, clust
 
         result[hemisphere] = slm
     
-    print(f'Group 1: N={len(group1_subjects)}, group 2: N={len(group2_subjects)}')
 
     cluster_mask = get_cluster_mask(result, correction, alpha)
     if correction is None:
@@ -191,6 +191,7 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
     result = {'left': [], 'right': []}
 
     common_subjects = sorted(list(set(data1['left'].columns) & set(data2['left'].columns)))
+    print(f'N={len(common_subjects)}')
 
     measurements = pd.DataFrame({'measurements': ['0']*len(common_subjects) + ['1']*len(common_subjects)})
 
@@ -210,7 +211,6 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
 
         result[hemisphere] = slm
     
-    print(f'N={len(common_subjects)}')
 
     cluster_mask = get_cluster_mask(result, correction, alpha)
 
