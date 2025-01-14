@@ -521,6 +521,6 @@ def get_cluster_summary(result):
 
                     area += A
 
-                cluster_summary = cluster_summary.append({'clusid': clusid, 'Anatomical location (peak)': anatomical_loc, 'Hemisphere': hemisphere, 'Cluster area (mm2)': f'{area:.0f}', 'MNI coordinates (x,y,z)': peak_coord, 'Cluster FWE p-value': f'{clus_pval:.2g}'}, ignore_index=True)
+                cluster_summary = pd.concat([cluster_summary, pd.DataFrame({'clusid': clusid, 'Anatomical location (peak)': anatomical_loc, 'Hemisphere': hemisphere, 'Cluster area (mm2)': f'{area:.0f}', 'MNI coordinates (x,y,z)': peak_coord, 'Cluster FWE p-value': f'{clus_pval:.2g}'})], ignore_index=True)
 
     return cluster_summary
