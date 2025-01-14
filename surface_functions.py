@@ -124,18 +124,15 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, clust
     group1_subjects = data_group1['left'].columns
     group2_subjects = data_group2['left'].columns
 
-    group1 = pd.DataFrame(np.concatenate([np.ones(len(group1_subjects)), np.zeros(len(group2_subjects))]), columns=['group1'])
-    group2 = pd.DataFrame(np.concatenate([np.zeros(len(group1_subjects)), np.ones(len(group2_subjects))]), columns=['group2'])
+    groups = pd.DataFrame({'group': ['0']*len(group1_subjects) + ['1']*len(group2_subjects)})
 
     for hemisphere in ['left', 'right']:
         data = pd.concat([data_group1[hemisphere], data_group2[hemisphere]], axis=1).T
 
         mask = ~data.isna().any(axis=0).values 
 
-        term_group1 = FixedEffect(group1)
-        term_group2 = FixedEffect(group2)
-
-        model = term_group1 + term_group2
+        term_groups = FixedEffect(groups)
+        model = term_groups
 
         if covars is not None:
             for covar in covars.index:
@@ -143,7 +140,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, clust
 
                 model = model + covar_term
 
-        contrast = term_group2.group2 - term_group1.group1
+        contrast = term_groups.group_1 - term_groups.group_0
 
         slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
         slm.fit(data.values)
@@ -195,21 +192,18 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
 
     common_subjects = sorted(list(set(data1['left'].columns) & set(data2['left'].columns)))
 
-    measurement_1 = pd.DataFrame(np.concatenate([np.ones(len(common_subjects)), np.zeros(len(common_subjects))]), columns=['measurement_1'])
-    measurement_2 = pd.DataFrame(np.concatenate([np.zeros(len(common_subjects)), np.ones(len(common_subjects))]), columns=['measurement_2'])
-    subjects = pd.DataFrame(np.tile(np.eye(len(common_subjects)), 2).T, columns=common_subjects)
+    measurements = pd.DataFrame({'measurements': ['0']*len(common_subjects) + ['1']*len(common_subjects)})
 
     for hemisphere in ['left', 'right']:
         data = pd.concat([data1[hemisphere][common_subjects], data2[hemisphere][common_subjects]], axis=1).T
 
         mask = ~data.isna().any(axis=0).values 
 
-        term_meas1 = FixedEffect(measurement_1, add_intercept=False)
-        term_meas2 = FixedEffect(measurement_2, add_intercept=False)
-        term_subject = FixedEffect(subjects, add_intercept=False)
+        term_meas = FixedEffect(measurements, add_intercept=False)
+        term_subject = FixedEffect(common_subjects*2, add_intercept=False)
 
-        model = term_meas1 + term_meas2 + term_subject
-        contrast = term_meas2.measurement_2 - term_meas1.measurement_1
+        model = term_meas + term_subject
+        contrast = term_meas.measurements_1 - term_meas.measurements_0
 
         slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
         slm.fit(data.values)
