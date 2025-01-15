@@ -127,6 +127,13 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, clust
 
     groups = pd.DataFrame({'group': ['0']*len(group1_subjects) + ['1']*len(group2_subjects)})
 
+    # Define covariates, if any
+    if covars is not None:
+        covar_term = None
+        for covar in covars.index: 
+            covar_term = covar_term + FixedEffect(covars.loc[covar][group1_subjects].append(covars.loc[covar][group2_subjects]).values, names=covar)
+
+    # Calculate unpaired t-test
     for hemisphere in ['left', 'right']:
         data = pd.concat([data_group1[hemisphere], data_group2[hemisphere]], axis=1).T
 
@@ -136,10 +143,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, clust
         model = term_groups
 
         if covars is not None:
-            for covar in covars.index:
-                covar_term = FixedEffect(covars.loc[covar][group1_subjects].append(covars.loc[covar][group2_subjects]).values, names=covar)
-
-                model = model + covar_term
+            model = model + covar_term
 
         contrast = term_groups.group_1 - term_groups.group_0
 
@@ -369,6 +373,12 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
     common_subjects = sorted(list(set(surface_data['left'].columns) & set(surface_data['right'].columns) & 
                                   set(surface_data_predictor['left'].columns) & set(surface_data_predictor['right'].columns)))
 
+    # Define covariates, if any
+    if covariates is not None:
+        covar_term = None
+        for covar in covariates[common_subjects].index: 
+            covar_term = covar_term + FixedEffect(covariates[common_subjects].loc[covar, :], names=covar)
+
     for hemisphere in ['left', 'right']:
         data = surface_data[hemisphere][common_subjects].T
         data_predictor = surface_data_predictor[hemisphere][common_subjects].T
@@ -382,11 +392,6 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         vert_list = np.where(mask==True)[0]
 
         # Run model for each vertex
-        if covariates is not None:
-            covar_term = None
-            for covar in covariates[common_subjects].index: 
-                covar_term = covar_term + FixedEffect(covariates[common_subjects].loc[covar, :], names=covar)
-
         for i in vert_list:
             # --- Correlation with other surface ---
             term = FixedEffect(data_predictor[i].values)
@@ -406,9 +411,7 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].mean().values, names=predictor_name)
         model = term_slope
         if covariates is not None:
-            for covar in covariates[common_subjects].index: 
-                term = FixedEffect(covariates[common_subjects].loc[covar, :], names=covar)
-                model = model + term
+            model = model + covar_term
 
         contrast = model.matrix[predictor_name].values
 
