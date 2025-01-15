@@ -382,6 +382,11 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         vert_list = np.where(mask==True)[0]
 
         # Run model for each vertex
+        if covariates is not None:
+            covar_term = None
+            for covar in covariates[common_subjects].index: 
+                covar_term = covar_term + FixedEffect(covariates[common_subjects].loc[covar, :], names=covar)
+
         for i in vert_list:
             # --- Correlation with other surface ---
             term = FixedEffect(data_predictor[i].values)
@@ -389,10 +394,7 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
             contrast = model.x0
 
             if covariates is not None:
-                for covar in covariates[common_subjects].index: 
-                    term = FixedEffect(covariates[common_subjects].loc[covar, :], names=covar)
-
-                    model = model + term
+                model = model + covar_term
 
             # --- Run model ---
             slm = SLM(model, contrast)
