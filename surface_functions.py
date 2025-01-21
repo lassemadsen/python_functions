@@ -11,8 +11,10 @@ Last edited: 12/9 - 2023
 import numpy as np
 import pandas as pd
 import os
+from pathlib import Path
 
 from scipy.stats import pearsonr
+from surface_plot import plot_mean_stats, plot_stats, cluster_plot
 
 PUBLIC_PATH='/public/lama'
 
@@ -86,7 +88,8 @@ from brainstat.stats.SLM import SLM
 surf = {'left': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_left_smooth.gii'),
         'right': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.gii')}
 
-def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, cluster_threshold=0.001, alpha=0.05):
+def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', cluster_threshold=0.001, alpha=0.05, 
+                   plot=True, outdir=None, group_names=('Group 1', 'Group2'), param_name=None):
     """
     Perform an unpaired t-test on the two groups of data.
     
@@ -115,8 +118,8 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, clust
         A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
         'size', and 'p'.
     """
-    if not correction in {'rft', 'fdr'} and correction is not None:
-        print('Wrong correction method! Should be "rft" or "fdr" or None. Please try again.')
+    if not correction in {'rft'} and correction is not None:
+        print('Wrong correction method! Should be "rft" or None. Please try again.')
         return
 
     result = {'left': [], 'right': []}
@@ -131,7 +134,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, clust
     if covars is not None:
         covar_term = None
         for covar in covars.index: 
-            covar_term = covar_term + FixedEffect(covars.loc[covar][group1_subjects].append(covars.loc[covar][group2_subjects]).values, names=covar)
+            covar_term = covar_term + FixedEffect(pd.concat([covars.loc[covar][group1_subjects],covars.loc[covar][group2_subjects]], names=covar))
 
     # Calculate unpaired t-test
     for hemisphere in ['left', 'right']:
@@ -158,6 +161,37 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction=None, clust
         cluster_summary = None
     else:
         cluster_summary = get_cluster_summary(result)
+
+    if plot:
+        if param_name is None:
+            print('Please set parameter name!')
+        elif outdir is None:
+            print('Please specify outdir.')
+        else:
+            if covar is None:
+                outdir = f'{outdir}/Unpaired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_p{cluster_threshold}'
+            else:
+                outdir = f'{outdir}/Unpaired_ttest_{param_name}+{"+".join(covars.index)}_{group_names[0]}_{group_names[1]}_p{cluster_threshold}'
+
+            if not os.path.isdir(outdir) or not os.listdir(outdir):
+                Path(outdir).mkdir(exist_ok=True)
+                print(f'Plotting results to {outdir}...')
+                # ---- Calculate mean for each group ---- 
+                mean_data = {'Group1': {'left': data_group1['left'].mean(axis=1), 'right': data_group1['right'].mean(axis=1)},
+                            'Group2': {'left': data_group2['left'].mean(axis=1), 'right': data_group2['right'].mean(axis=1)}}
+                
+                outfile_fwe_corrected = f'{outdir}/Unpaired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_fweCorrected_p{cluster_threshold}.jpg'
+                outfile_uncorrected = f'{outdir}/Unpaired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_uncorrected_p{cluster_threshold}.jpg'
+
+                # ---- Plot results ----
+                t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
+                mean_titles = [f'{group_names[0]} (n={len(group1_subjects)})', f'{group_names[1]} (n={len(group2_subjects)})']
+                if correction is not None:
+                    plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_fwe_corrected, p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, t_lim=[-5, 5])
+                plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, mean_titles=mean_titles, stats_titles='Difference', t_lim=[-5, 5])
+                cluster_summary.to_csv(f'{outdir}/ClusterSum_Unpaired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_fweCorrected_{cluster_threshold}.csv')
+            else:
+                print(f'{outdir} exists! Will not overwrite.')
 
     return result, cluster_mask, cluster_summary
 
