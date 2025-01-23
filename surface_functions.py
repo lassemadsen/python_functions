@@ -89,7 +89,7 @@ surf = {'left': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nli
         'right': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.gii')}
 
 def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', cluster_threshold=0.001, alpha=0.05, 
-                   plot=True, outdir=None, group_names=('Group 1', 'Group2'), param_name=None):
+                   plot=True, outdir=None, group_names=('Group 1', 'Group2'), param_name=None, clobber=False):
     """
     Perform an unpaired t-test on the two groups of data.
     
@@ -126,15 +126,26 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
 
     group1_subjects = data_group1['left'].columns
     group2_subjects = data_group2['left'].columns
-    print(f'Group 1: N={len(group1_subjects)}, group 2: N={len(group2_subjects)}')
-
-    groups = pd.DataFrame({'group': ['0']*len(group1_subjects) + ['1']*len(group2_subjects)})
 
     # Define covariates, if any
     if covars is not None:
         covar_term = None
+
+        # Make sure all subjects have covars
+        group1_subjects = sorted(list(set(group1_subjects) & set(covars.columns)))
+        group2_subjects = sorted(list(set(group2_subjects) & set(covars.columns)))
+
+        # Only use data from subjects with covars
+        for hemisphere in ['left', 'right']:
+            data_group1[hemisphere] = data_group1[hemisphere][group1_subjects]
+            data_group2[hemisphere] = data_group2[hemisphere][group2_subjects]
+
         for covar in covars.index: 
             covar_term = covar_term + FixedEffect(pd.concat([covars.loc[covar][group1_subjects],covars.loc[covar][group2_subjects]], names=covar))
+
+    print(f'Group 1: N={len(group1_subjects)}, group 2: N={len(group2_subjects)}')
+
+    groups = pd.DataFrame({'group': ['0']*len(group1_subjects) + ['1']*len(group2_subjects)})
 
     # Calculate unpaired t-test
     for hemisphere in ['left', 'right']:
@@ -170,32 +181,39 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
         else:
             if covar is None:
                 outdir = f'{outdir}/Unpaired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_p{cluster_threshold}'
+                outfile_fwe_corrected = f'{outdir}/Unpaired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_fweCorrected_p{cluster_threshold}.jpg'
+                outfile_uncorrected = f'{outdir}/Unpaired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_uncorrected_p{cluster_threshold}.jpg'
+                cluster_summary_file = f'{outdir}/ClusterSum_Unpaired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_fweCorrected_{cluster_threshold}.csv'
+
             else:
                 outdir = f'{outdir}/Unpaired_ttest_{param_name}+{"+".join(covars.index)}_{group_names[0]}_{group_names[1]}_p{cluster_threshold}'
+                outfile_fwe_corrected = f'{outdir}/Unpaired_ttest_{param_name}+{"+".join(covars.index)}_{group_names[0]}_{group_names[1]}_fweCorrected_p{cluster_threshold}.jpg'
+                outfile_uncorrected = f'{outdir}/Unpaired_ttest_{param_name}+{"+".join(covars.index)}_{group_names[0]}_{group_names[1]}_uncorrected_p{cluster_threshold}.jpg'
+                cluster_summary_file = f'{outdir}/ClusterSum_Unpaired_ttest_{param_name}+{"+".join(covars.index)}_{group_names[0]}_{group_names[1]}_fweCorrected_{cluster_threshold}.csv'
 
-            if not os.path.isdir(outdir) or not os.listdir(outdir):
+            if not os.path.isdir(outdir) or not os.listdir(outdir) or clobber:
                 Path(outdir).mkdir(exist_ok=True)
                 print(f'Plotting results to {outdir}...')
                 # ---- Calculate mean for each group ---- 
                 mean_data = {'Group1': {'left': data_group1['left'].mean(axis=1), 'right': data_group1['right'].mean(axis=1)},
-                            'Group2': {'left': data_group2['left'].mean(axis=1), 'right': data_group2['right'].mean(axis=1)}}
-                
-                outfile_fwe_corrected = f'{outdir}/Unpaired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_fweCorrected_p{cluster_threshold}.jpg'
-                outfile_uncorrected = f'{outdir}/Unpaired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_uncorrected_p{cluster_threshold}.jpg'
+                             'Group2': {'left': data_group2['left'].mean(axis=1), 'right': data_group2['right'].mean(axis=1)}}
 
                 # ---- Plot results ----
                 t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
                 mean_titles = [f'{group_names[0]} (n={len(group1_subjects)})', f'{group_names[1]} (n={len(group2_subjects)})']
                 if correction is not None:
                     plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_fwe_corrected, p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, t_lim=[-5, 5])
+                    cluster_plot.boxplot(data_group1, data_group2, result, outdir, group_names[0], group_names[1], param_name, alpha=cluster_threshold)
+                    cluster_summary.to_csv(cluster_summary_file)
+
                 plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, mean_titles=mean_titles, stats_titles='Difference', t_lim=[-5, 5])
-                cluster_summary.to_csv(f'{outdir}/ClusterSum_Unpaired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_fweCorrected_{cluster_threshold}.csv')
             else:
-                print(f'{outdir} exists! Will not overwrite.')
+                print(f'{outdir} exists! Use clobber to overwrite.')
 
     return result, cluster_mask, cluster_summary
 
-def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0.05):
+def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0.05, 
+                 plot=True, outdir=None, group_names=('Group 1', 'Group2'), param_name=None, clobber=False):
     """
     Perform a paired t-test on the data.
     
@@ -231,10 +249,14 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
     common_subjects = sorted(list(set(data1['left'].columns) & set(data2['left'].columns)))
     print(f'N={len(common_subjects)}')
 
+    for hemisphere in ['left', 'right']:
+        data1[hemisphere] = data1[hemisphere][common_subjects]
+        data2[hemisphere] = data2[hemisphere][common_subjects]
+
     measurements = pd.DataFrame({'measurements': ['0']*len(common_subjects) + ['1']*len(common_subjects)})
 
     for hemisphere in ['left', 'right']:
-        data = pd.concat([data1[hemisphere][common_subjects], data2[hemisphere][common_subjects]], axis=1).T
+        data = pd.concat([data1[hemisphere], data2[hemisphere]], axis=1).T
 
         mask = ~data.isna().any(axis=0).values 
 
@@ -249,13 +271,41 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
 
         result[hemisphere] = slm
     
-
     cluster_mask = get_cluster_mask(result, correction, alpha)
 
     if correction is None:
         cluster_summary = None
     else:
         cluster_summary = get_cluster_summary(result)
+
+    if plot:
+        if param_name is None:
+            print('Please set parameter name!')
+        elif outdir is None:
+            print('Please specify outdir.')
+        else:
+            outdir = f'{outdir}/Paired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_p{cluster_threshold}'
+            outfile_fwe_corrected = f'{outdir}/Paired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_fweCorrected_p{cluster_threshold}.jpg'
+            outfile_uncorrected = f'{outdir}/Paired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_uncorrected_p{cluster_threshold}.jpg'
+            cluster_summary_file = f'{outdir}/ClusterSum_Unpaired_ttest_{param_name}_{group_names[0]}_{group_names[1]}_fweCorrected_{cluster_threshold}.csv'
+
+            if not os.path.isdir(outdir) or not os.listdir(outdir) or clobber:
+                Path(outdir).mkdir(exist_ok=True)
+                print(f'Plotting results to {outdir}...')
+                # ---- Calculate mean for each group ---- 
+                mean_data = {'Group1': {'left': data1['left'].mean(axis=1), 'right': data1['right'].mean(axis=1)},
+                             'Group2': {'left': data2['left'].mean(axis=1), 'right': data2['right'].mean(axis=1)}}
+
+                # ---- Plot results ----
+                t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
+                mean_titles = [f'{group_names[0]} (n={len(common_subjects)})', f'{group_names[1]} (n={len(common_subjects)})']
+                if correction is not None:
+                    plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_fwe_corrected, p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, t_lim=[-5, 5])
+                    cluster_plot.boxplot(data1, data2, result, outdir, group_names[0], group_names[1], param_name, alpha=cluster_threshold)
+                    cluster_summary.to_csv(cluster_summary_file)
+                plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, mean_titles=mean_titles, stats_titles='Difference', t_lim=[-5, 5])
+            else:
+                print(f'{outdir} exists! Use clobber to overwrite.')
     
     return result, common_subjects, cluster_mask, cluster_summary
 
@@ -365,7 +415,8 @@ def correlation_pearson(param, predictor):
     
     return result, common_subjects
 
-def correlation_other_surface(surface_data, surface_data_predictor, predictor_name='surface_data', covariates=None, correction=None, cluster_threshold=0.001, alpha=0.05):
+def correlation_other_surface(surface_data, surface_data_predictor, predictor_name='surface_data', covariates=None, correction=None, cluster_threshold=0.001, alpha=0.05,
+                              plot=True, outdir=None, indep_name=None, clobber=False):
     """
     Calculate the correlation of two surfaces 
 
@@ -406,16 +457,25 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
 
     common_subjects = sorted(list(set(surface_data['left'].columns) & set(surface_data['right'].columns) & 
                                   set(surface_data_predictor['left'].columns) & set(surface_data_predictor['right'].columns)))
+                                  
 
     # Define covariates, if any
     if covariates is not None:
+        # Make sure all subjects have covars
+        common_subjects = sorted(list(set(common_subjects) & set(covariates.columns)))
+
         covar_term = None
         for covar in covariates[common_subjects].index: 
             covar_term = covar_term + FixedEffect(covariates[common_subjects].loc[covar, :], names=covar)
 
+    # Only use data from subjects with covars and both data
     for hemisphere in ['left', 'right']:
-        data = surface_data[hemisphere][common_subjects].T
-        data_predictor = surface_data_predictor[hemisphere][common_subjects].T
+        surface_data[hemisphere] = surface_data[hemisphere][common_subjects]
+        surface_data_predictor[hemisphere] = surface_data_predictor[hemisphere][common_subjects]
+
+    for hemisphere in ['left', 'right']:
+        data = surface_data[hemisphere].T
+        data_predictor = surface_data_predictor[hemisphere].T
 
         mask = (~data.isna().any(axis=0) & ~data_predictor.isna().any(axis=0)).values
 
@@ -442,7 +502,7 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
             t[i] = slm.t[0][0]
         
         # Run with mean data to compute multple comparison
-        term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].mean().values, names=predictor_name)
+        term_slope = FixedEffect(surface_data_predictor[hemisphere].mean().values, names=predictor_name)
         model = term_slope
         if covariates is not None:
             model = model + covar_term
@@ -463,6 +523,33 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         cluster_summary = None
     else:
         cluster_summary = get_cluster_summary(result)
+    
+    if plot:
+        if indep_name is None or predictor_name == 'surface_data':
+            print('Please set parameter names!')
+        elif outdir is None:
+            print('Please specify outdir.')
+        else:
+            outdir = f'{outdir}/Correlation_{predictor_name}_{indep_name}_p{cluster_threshold}'
+            outfile_fwe_corrected = f'{outdir}/Correlation_{predictor_name}_{indep_name}_p{cluster_threshold}_fweCorrected_p{cluster_threshold}.jpg'
+            outfile_uncorrected = f'{outdir}/Correlation_{predictor_name}_{indep_name}_p{cluster_threshold}_uncorrected_p{cluster_threshold}.jpg'
+            cluster_summary_file = f'{outdir}/ClusterSum_Correlation_{predictor_name}_{indep_name}_p{cluster_threshold}_fweCorrected_{cluster_threshold}.csv'
+
+            if not os.path.isdir(outdir) or not os.listdir(outdir) or clobber:
+                Path(outdir).mkdir(exist_ok=True)
+                print(f'Plotting results to {outdir}...')
+
+                # ---- Plot results ----
+                t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
+            
+                title = ''
+                if correction is not None:
+                    plot_stats.plot_tval(t_value, outfile_fwe_corrected, p_threshold=cluster_threshold, df=result['left'].df, cluster_mask=cluster_mask, t_lim=[-5, 5], title=title, cbar_loc='left')
+                    cluster_plot.correlation_plot(result, surface_data, indep_name, common_subjects, outdir)
+                    cluster_summary.to_csv(cluster_summary_file)
+                plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, t_lim=[-5, 5], title=title, cbar_loc='left')
+            else:
+                print(f'{outdir} exists! Use clobber to overwrite.')
 
     return result, common_subjects, cluster_mask, cluster_summary
     
