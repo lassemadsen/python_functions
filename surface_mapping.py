@@ -155,7 +155,7 @@ def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_
 
         mapping = f'{t1t2_pipeline}/{mr_id}/{mr_tp}/face/mapping/{hemisphere}.corr'
 
-        if param_name is 'thickness':
+        if param_name == 'thickness':
             # Cortical thickness data is already in MNI space. Only needs blurring
             process_list.extend([
                 f'cp {t1t2_pipeline}/{mr_id}/{mr_tp}/face/mapping/{hemisphere}.dist {out_surface_prefix}_std.dat',
@@ -254,7 +254,7 @@ def _clean_surface_after_smoothing(not_smoothed, smoothed):
 
     # Values outside FOV are set to -1 in "surfacesignals.bin". These are changed to nan to ensure they are not included in any further analysis.
     ns = ns.replace(-1, np.nan)
-    s.loc[ns.iloc[0,:].isna()] = np.nan
+    s.loc[ns.iloc[:,0].isna()] = np.nan
 
     ns.to_csv(not_smoothed, index=False)
     s.to_csv(smoothed, index=False)
