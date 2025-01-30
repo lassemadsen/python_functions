@@ -224,17 +224,17 @@ def _run_process(process_list, sub_id, timepoint, hemisphere, measurement, clobb
     return succes
 
 def _exclude_bg(bg_val, data_file):
-    """ Set background voxels to -1 (same standard if surface is outside image)
+    """ Set background voxels to nan
 
     Parameter
     ---------
     bg_val : int
-        Value of background voxels. Vertices with this value is set to -1
+        Value of background voxels. Vertices with this value are set to nan
     data : str
         File location of parameter map to correct
     """
     data = pd.read_csv(data_file)
-    data[data == bg_val] = -1
+    data = data.replace(bg_val, np.nan)
 
     data.to_csv(data_file, index=False)
 
