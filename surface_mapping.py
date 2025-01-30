@@ -253,8 +253,8 @@ def _clean_surface_after_smoothing(not_smoothed, smoothed):
     s = pd.read_csv(smoothed)
 
     # Values outside FOV are set to -1 in "surfacesignals.bin". These are changed to nan to ensure they are not included in any further analysis.
-    ns[ns==-1] = np.nan
-    s[ns==-1] = np.nan
+    ns = ns.replace(-1, np.nan)
+    s.loc[ns.iloc[0,:].isna()] = np.nan
 
     ns.to_csv(not_smoothed, index=False)
     s.to_csv(smoothed, index=False)
