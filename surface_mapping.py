@@ -21,7 +21,8 @@ SURFACE_OBJ = {'left': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09
                'right': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.obj'}
 SURFACE_BLUR = 20
 
-def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, clean_surface=False, surface_blur=20, bg_val=None, clobber=False):
+def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_tp, param_tp, 
+                   param_name, outdir, out_id=None, clean_surface=False, surface_blur=20, bg_val=None, clobber=False):
     """Map parameter signals to mid surface 
 
     Parameters
@@ -238,7 +239,7 @@ def _exclude_bg(bg_val, data_file):
     data.to_csv(data_file, index=False)
 
 def _clean_surface_after_smoothing(not_smoothed, smoothed):
-    """Script to clean surface after smoothing to ensure that vertices outside FOV is set to -1
+    """Script to clean surface after smoothing to ensure that vertices outside FOV are set to nan
     
     Parameter
     ---------
@@ -251,8 +252,11 @@ def _clean_surface_after_smoothing(not_smoothed, smoothed):
     ns = pd.read_csv(not_smoothed)
     s = pd.read_csv(smoothed)
 
-    s[ns==-1] = -1
+    # Values outside FOV are set to -1 in "surfacesignals.bin". These are changed to nan to ensure they are not included in any further analysis.
+    ns[ns==-1] = np.nan
+    s[ns==-1] = np.nan
 
+    ns.to_csv(not_smoothed, index=False)
     s.to_csv(smoothed, index=False)
 
 
