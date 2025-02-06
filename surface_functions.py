@@ -135,11 +135,6 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
         group1_subjects = sorted(list(set(group1_subjects) & set(covars.columns)))
         group2_subjects = sorted(list(set(group2_subjects) & set(covars.columns)))
 
-        # Only use data from subjects with covars
-        for hemisphere in ['left', 'right']:
-            data_group1[hemisphere] = data_group1[hemisphere][group1_subjects]
-            data_group2[hemisphere] = data_group2[hemisphere][group2_subjects]
-
         for covar in covars.index: 
             covar_term = covar_term + FixedEffect(pd.concat([covars.loc[covar][group1_subjects],covars.loc[covar][group2_subjects]], names=covar))
 
@@ -149,7 +144,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
 
     # Calculate unpaired t-test
     for hemisphere in ['left', 'right']:
-        data = pd.concat([data_group1[hemisphere], data_group2[hemisphere]], axis=1).T
+        data = pd.concat([data_group1[hemisphere][group1_subjects], data_group2[hemisphere][group2_subjects]], axis=1).T
 
         # Get mask 
         mask = ~data.isna().any(axis=0).values 
@@ -203,8 +198,8 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
                 Path(outdir).mkdir(exist_ok=True, parents=True)
                 print(f'Plotting results to {outdir}...')
                 # ---- Calculate mean for each group ---- 
-                mean_data = {'Group1': {'left': data_group1['left'].mean(axis=1), 'right': data_group1['right'].mean(axis=1)},
-                             'Group2': {'left': data_group2['left'].mean(axis=1), 'right': data_group2['right'].mean(axis=1)}}
+                mean_data = {'Group1': {'left': data_group1['left'][group1_subjects].mean(axis=1), 'right': data_group1['right'][group1_subjects].mean(axis=1)},
+                             'Group2': {'left': data_group2['left'][group2_subjects].mean(axis=1), 'right': data_group2['right'][group2_subjects].mean(axis=1)}}
 
                 # ---- Plot results ----
                 t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
@@ -216,7 +211,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
                                                     mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, 
                                                     mask=mask, t_lim=[-5, 5], clobber=clobber, 
                                                     cb_mean_title=f'Mean {param_name}', **kwargs)
-                    cluster_plot.boxplot(data_group1, data_group2, result, outdir, group_names[0], group_names[1], 
+                    cluster_plot.boxplot(data_group1[group1_subjects], data_group2[group2_subjects], result, outdir, group_names[0], group_names[1], 
                                          param_name, alpha=cluster_threshold, clobber=clobber)
                     cluster_summary.to_csv(cluster_summary_file)
 
@@ -267,14 +262,14 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
     common_subjects = sorted(list(set(data1['left'].columns) & set(data2['left'].columns)))
     print(f'N={len(common_subjects)}')
 
-    for hemisphere in ['left', 'right']:
-        data1[hemisphere] = data1[hemisphere][common_subjects]
-        data2[hemisphere] = data2[hemisphere][common_subjects]
+    # for hemisphere in ['left', 'right']:
+    #     data1[hemisphere] = data1[hemisphere][common_subjects]
+    #     data2[hemisphere] = data2[hemisphere][common_subjects]
 
     measurements = pd.DataFrame({'measurements': ['0']*len(common_subjects) + ['1']*len(common_subjects)})
 
     for hemisphere in ['left', 'right']:
-        data = pd.concat([data1[hemisphere], data2[hemisphere]], axis=1).T
+        data = pd.concat([data1[hemisphere][common_subjects], data2[hemisphere][common_subjects]], axis=1).T
 
         # Get mask 
         mask = ~data.isna().any(axis=0).values 
@@ -319,8 +314,8 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
                 Path(outdir).mkdir(exist_ok=True, parents=True)
                 print(f'Plotting results to {outdir}...')
                 # ---- Calculate mean for each group ---- 
-                mean_data = {'Group1': {'left': data1['left'].mean(axis=1), 'right': data1['right'].mean(axis=1)},
-                             'Group2': {'left': data2['left'].mean(axis=1), 'right': data2['right'].mean(axis=1)}}
+                mean_data = {'Group1': {'left': data1['left'][common_subjects].mean(axis=1), 'right': data1['right'][common_subjects].mean(axis=1)},
+                             'Group2': {'left': data2['left'][common_subjects].mean(axis=1), 'right': data2['right'][common_subjects].mean(axis=1)}}
 
                 # ---- Plot results ----
                 mask = {'left': result['left'].mask, 'right': result['right'].mask}
@@ -331,7 +326,7 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
                                                     p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
                                                     mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, 
                                                     mask=mask, t_lim=[-5, 5], clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
-                    cluster_plot.boxplot(data1, data2, result, outdir, group_names[0], group_names[1], param_name, 
+                    cluster_plot.boxplot(data1[common_subjects], data2[common_subjects], result, outdir, group_names[0], group_names[1], param_name, 
                                          alpha=cluster_threshold, clobber=clobber)
                     cluster_summary.to_csv(cluster_summary_file)
                 plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected,
@@ -509,14 +504,9 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         for covar in covariates[common_subjects].index: 
             covar_term = covar_term + FixedEffect(covariates[common_subjects].loc[covar, :], names=covar)
 
-    # Only use data from subjects with covars and both data
     for hemisphere in ['left', 'right']:
-        surface_data[hemisphere] = surface_data[hemisphere][common_subjects]
-        surface_data_predictor[hemisphere] = surface_data_predictor[hemisphere][common_subjects]
-
-    for hemisphere in ['left', 'right']:
-        data = surface_data[hemisphere].T
-        data_predictor = surface_data_predictor[hemisphere].T
+        data = surface_data[hemisphere][common_subjects].T
+        data_predictor = surface_data_predictor[hemisphere][common_subjects].T
 
         # Get mask
         mask = (~data.isna().any(axis=0) & ~data_predictor.isna().any(axis=0)).values
@@ -549,7 +539,7 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
             t[i] = slm.t[0][0]
         
         # Run with mean data to compute multple comparison
-        term_slope = FixedEffect(surface_data_predictor[hemisphere].mean().values, names=predictor_name)
+        term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].mean().values, names=predictor_name)
         model = term_slope
         if covariates is not None:
             model = model + covar_term
@@ -606,7 +596,7 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
                     plot_stats.plot_tval(t_value, outfile_fwe_corrected, p_threshold=cluster_threshold, df=result['left'].df, 
                                          cluster_mask=cluster_mask, mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', 
                                          clobber=clobber, **kwargs)
-                    cluster_plot.correlation_plot(result, surface_data, indep_name, common_subjects, outdir, clobber=clobber)
+                    cluster_plot.correlation_plot(result, surface_data[common_subjects], indep_name, common_subjects, outdir, clobber=clobber)
                     cluster_summary.to_csv(cluster_summary_file)
                 plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, 
                                      mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', clobber=clobber, **kwargs)
