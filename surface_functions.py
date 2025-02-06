@@ -316,7 +316,7 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
             cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
 
             if not os.path.isdir(outdir) or not os.listdir(outdir) or clobber:
-                Path(outdir).mkdir(exist_ok=True)
+                Path(outdir).mkdir(exist_ok=True, parents=True)
                 print(f'Plotting results to {outdir}...')
                 # ---- Calculate mean for each group ---- 
                 mean_data = {'Group1': {'left': data1['left'].mean(axis=1), 'right': data1['right'].mean(axis=1)},
