@@ -151,7 +151,12 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
     for hemisphere in ['left', 'right']:
         data = pd.concat([data_group1[hemisphere], data_group2[hemisphere]], axis=1).T
 
+        # Get mask 
         mask = ~data.isna().any(axis=0).values 
+
+        # Brainstat RFT correction does not work well with mask. Values not in mask are set to 0.
+        # Note: Unsure how well this works if many vertices are nan.
+        data.iloc[:,~mask] = 0
 
         term_groups = FixedEffect(groups)
         model = term_groups
@@ -161,12 +166,13 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
 
         contrast = term_groups.group_1 - term_groups.group_0
 
-        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
+        # slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
+        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
         slm.fit(data.values)
+        slm.mask = mask
 
         result[hemisphere] = slm
     
-
     cluster_mask = get_cluster_mask(result, correction, alpha)
     if correction is None:
         cluster_summary = None
@@ -180,15 +186,15 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
             print('Please specify outdir.')
         else:
             if covar is None:
-                outdir = f'{outdir}/Unpaired_ttest/{group_names[0].replace(" ", "_")}_vs_{group_names[1].replace(" ", "_")}/{param_name}'
-                basename = f'{param_name}_p{cluster_threshold}'
+                outdir = f'{outdir}/Unpaired_ttest/{group_names[0].replace(" ", "_")}_vs_{group_names[1].replace(" ", "_")}/{param_name.replace(" ", "_")}'
+                basename = f'{param_name.replace(" ", "_")}_p{cluster_threshold}'
                 outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
                 outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
                 cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
 
             else:
-                outdir = f'{outdir}/Unpaired_ttest/{group_names[0].replace(" ", "_")}_vs_{group_names[1].replace(" ", "_")}/{param_name}+{"+".join(covars.index)}'
-                basename = f'{param_name}+{"+".join(covars.index)}_p{cluster_threshold}'
+                outdir = f'{outdir}/Unpaired_ttest/{group_names[0].replace(" ", "_")}_vs_{group_names[1].replace(" ", "_")}/{param_name.replace(" ", "_")}+{"+".join(covars.index)}'
+                basename = f'{param_name.replace(" ", "_")}+{"+".join(covars.index)}_p{cluster_threshold}'
                 outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
                 outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
                 cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
@@ -202,12 +208,14 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
 
                 # ---- Plot results ----
                 t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
+                mask = {'left': result['left'].mask, 'right': result['right'].mask}
                 mean_titles = [f'{group_names[0]} (n={len(group1_subjects)})', f'{group_names[1]} (n={len(group2_subjects)})']
                 if correction is not None:
                     plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_fwe_corrected, 
                                                     p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
                                                     mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, 
-                                                    t_lim=[-5, 5], clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
+                                                    mask=mask, t_lim=[-5, 5], clobber=clobber, 
+                                                    cb_mean_title=f'Mean {param_name}', **kwargs)
                     cluster_plot.boxplot(data_group1, data_group2, result, outdir, group_names[0], group_names[1], 
                                          param_name, alpha=cluster_threshold, clobber=clobber)
                     cluster_summary.to_csv(cluster_summary_file)
@@ -215,7 +223,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
                 plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected, 
                                                 p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
                                                 mean_titles=mean_titles, stats_titles='Difference', t_lim=[-5, 5], 
-                                                cb_mean_title=f'Mean {param_name}', clobber=clobber, **kwargs)
+                                                mask=mask, cb_mean_title=f'Mean {param_name}', clobber=clobber, **kwargs)
             else:
                 print(f'{outdir} exists! Use clobber to overwrite.')
 
@@ -268,7 +276,12 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
     for hemisphere in ['left', 'right']:
         data = pd.concat([data1[hemisphere], data2[hemisphere]], axis=1).T
 
+        # Get mask 
         mask = ~data.isna().any(axis=0).values 
+
+        # Brainstat RFT correction does not work well with mask. Values not in mask are set to 0.
+        # Note: Unsure how well this works if many vertices are nan.
+        data.iloc[:,~mask] = 0
 
         term_meas = FixedEffect(measurements, add_intercept=False)
         term_subject = FixedEffect(common_subjects*2, add_intercept=False)
@@ -276,8 +289,10 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
         model = term_meas + term_subject
         contrast = term_meas.measurements_1 - term_meas.measurements_0
 
-        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
+        #slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
+        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
         slm.fit(data.values)
+        slm.mask = mask
 
         result[hemisphere] = slm
     
@@ -294,7 +309,7 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
         elif outdir is None:
             print('Please specify outdir.')
         else:
-            outdir = f'{outdir}/Paired_ttest/{group_names[0].replace(" ", "_")}_vs_{group_names[1].replace(" ", "_")}/{param_name}'
+            outdir = f'{outdir}/Paired_ttest/{group_names[0].replace(" ", "_")}_vs_{group_names[1].replace(" ", "_")}/{param_name.replace(" ", "_")}'
             basename = f'{param_name}_p{cluster_threshold}'
             outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
             outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
@@ -308,19 +323,20 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
                              'Group2': {'left': data2['left'].mean(axis=1), 'right': data2['right'].mean(axis=1)}}
 
                 # ---- Plot results ----
+                mask = {'left': result['left'].mask, 'right': result['right'].mask}
                 t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
                 mean_titles = [f'{group_names[0]} (n={len(common_subjects)})', f'{group_names[1]} (n={len(common_subjects)})']
                 if correction is not None:
                     plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_fwe_corrected, 
                                                     p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
                                                     mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, 
-                                                    t_lim=[-5, 5], clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
+                                                    mask=mask, t_lim=[-5, 5], clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
                     cluster_plot.boxplot(data1, data2, result, outdir, group_names[0], group_names[1], param_name, 
                                          alpha=cluster_threshold, clobber=clobber)
                     cluster_summary.to_csv(cluster_summary_file)
                 plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected,
                                                  p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
-                                                 mean_titles=mean_titles, stats_titles='Difference', t_lim=[-5, 5], 
+                                                 mean_titles=mean_titles, stats_titles='Difference', t_lim=[-5, 5], mask=mask,
                                                  clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
             else:
                 print(f'{outdir} exists! Use clobber to overwrite.')
@@ -368,7 +384,12 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
     for hemisphere in ['left', 'right']:
         data = surface_data[hemisphere][common_subjects].T
 
+        # Get mask
         mask = ~data.isna().any(axis=0).values 
+
+        # Brainstat RFT correction does not work well with mask. Values not in mask are set to 0.
+        # Note: Unsure how well this works if many vertices are nan.
+        data.iloc[:,~mask] = 0
 
         terms = {}
         model = []
@@ -380,8 +401,10 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
         contrast = predictors[common_subjects].loc[predictors.index[0], :].values
 
         # --- Run model ---
-        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
+        # slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
+        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
         slm.fit(data.values)
+        slm.mask = mask
 
         result[hemisphere] = slm
     
@@ -495,8 +518,14 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         data = surface_data[hemisphere].T
         data_predictor = surface_data_predictor[hemisphere].T
 
+        # Get mask
         mask = (~data.isna().any(axis=0) & ~data_predictor.isna().any(axis=0)).values
 
+        # Brainstat RFT correction does not work well with mask. Values not in mask are set to 0.
+        # Note: Unsure how well this works if many vertices are nan.
+        data.iloc[:,~mask] = 0
+        data_predictor.iloc[:,~mask] = 0
+        
         # Initialise t values to nan
         t = np.zeros(mask.shape)
         t[:] = np.nan
@@ -527,12 +556,14 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
 
         contrast = model.matrix[predictor_name].values
 
-        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
+        # slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
+        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
         slm.fit(data.values)
 
         slm.t = np.array([t])
         if correction is not None:
             slm.multiple_comparison_corrections(True)
+        slm.mask = mask
 
         result[hemisphere] = slm
 
@@ -567,16 +598,18 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
                 print(f'Plotting results to {outdir}...')
 
                 # ---- Plot results ----
+                mask = {'left': result['left'].mask, 'right': result['right'].mask}
                 t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
             
-                title = ''
+                title = f'{indep_name}~{predictor_name} (n={len(common_subjects)})'
                 if correction is not None:
                     plot_stats.plot_tval(t_value, outfile_fwe_corrected, p_threshold=cluster_threshold, df=result['left'].df, 
-                                         cluster_mask=cluster_mask, t_lim=[-5, 5], title=title, cbar_loc='left', clobber=clobber, **kwargs)
+                                         cluster_mask=cluster_mask, mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', 
+                                         clobber=clobber, **kwargs)
                     cluster_plot.correlation_plot(result, surface_data, indep_name, common_subjects, outdir, clobber=clobber)
                     cluster_summary.to_csv(cluster_summary_file)
                 plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, 
-                                     t_lim=[-5, 5], title=title, cbar_loc='left', clobber=clobber, **kwargs)
+                                     mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', clobber=clobber, **kwargs)
             else:
                 print(f'{outdir} exists! Use clobber to overwrite.')
 
