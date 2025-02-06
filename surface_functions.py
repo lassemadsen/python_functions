@@ -185,7 +185,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
         elif outdir is None:
             print('Please specify outdir.')
         else:
-            if covar is None:
+            if covars is None:
                 outdir = f'{outdir}/Unpaired_ttest/{group_names[0].replace(" ", "_")}_vs_{group_names[1].replace(" ", "_")}/{param_name.replace(" ", "_")}'
                 basename = f'{param_name.replace(" ", "_")}_p{cluster_threshold}'
                 outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
