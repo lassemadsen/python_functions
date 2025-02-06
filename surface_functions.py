@@ -263,10 +263,6 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
     common_subjects = sorted(list(set(data1['left'].columns) & set(data2['left'].columns)))
     print(f'N={len(common_subjects)}')
 
-    # for hemisphere in ['left', 'right']:
-    #     data1[hemisphere] = data1[hemisphere][common_subjects]
-    #     data2[hemisphere] = data2[hemisphere][common_subjects]
-
     measurements = pd.DataFrame({'measurements': ['0']*len(common_subjects) + ['1']*len(common_subjects)})
 
     for hemisphere in ['left', 'right']:
@@ -306,7 +302,7 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
             print('Please specify outdir.')
         else:
             outdir = f'{outdir}/Paired_ttest/{group_names[0].replace(" ", "_")}_vs_{group_names[1].replace(" ", "_")}/{param_name.replace(" ", "_")}'
-            basename = f'{param_name}_p{cluster_threshold}'
+            basename = f'{param_name.replace(" ", "_")}_p{cluster_threshold}'
             outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
             outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
             cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
@@ -327,7 +323,7 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
                                                     p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
                                                     mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, 
                                                     mask=mask, t_lim=[-5, 5], clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
-                    cluster_plot.boxplot({'left': data2['left'][common_subjects], 'right': data1['right'][common_subjects]},
+                    cluster_plot.boxplot({'left': data1['left'][common_subjects], 'right': data1['right'][common_subjects]},
                                          {'left': data2['left'][common_subjects], 'right': data2['right'][common_subjects]},
                                          result, outdir, group_names[0], group_names[1], param_name, alpha=cluster_threshold, clobber=clobber)
                     cluster_summary.to_csv(cluster_summary_file)
