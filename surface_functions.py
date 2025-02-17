@@ -194,35 +194,31 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
                 outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
                 cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
 
-            if not os.path.isdir(outdir) or not os.listdir(outdir) or clobber:
-                Path(outdir).mkdir(exist_ok=True, parents=True)
-                print(f'Plotting results to {outdir}...')
-                # ---- Calculate mean for each group ---- 
-                mean_data = {'Group1': {'left': data_group1['left'][group1_subjects].mean(axis=1), 'right': data_group1['right'][group1_subjects].mean(axis=1)},
-                             'Group2': {'left': data_group2['left'][group2_subjects].mean(axis=1), 'right': data_group2['right'][group2_subjects].mean(axis=1)}}
+            print(f'Plotting results to {outdir}...')
+            # ---- Calculate mean for each group ---- 
+            mean_data = {'Group1': {'left': data_group1['left'][group1_subjects].mean(axis=1), 'right': data_group1['right'][group1_subjects].mean(axis=1)},
+                            'Group2': {'left': data_group2['left'][group2_subjects].mean(axis=1), 'right': data_group2['right'][group2_subjects].mean(axis=1)}}
 
-                # ---- Plot results ----
-                t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
-                mask = {'left': result['left'].mask, 'right': result['right'].mask}
-                mean_titles = [f'{group_names[0]} (n={len(group1_subjects)})', f'{group_names[1]} (n={len(group2_subjects)})']
-                if correction is not None:
-                    plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_fwe_corrected, 
-                                                    p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
-                                                    mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, 
-                                                    mask=mask, t_lim=[-5, 5], clobber=clobber, 
-                                                    cb_mean_title=f'Mean {param_name}', **kwargs)
-                    cluster_plot.boxplot({'left': data_group1['left'][group1_subjects], 'right': data_group1['right'][group1_subjects]}, 
-                                         {'left': data_group2['left'][group2_subjects], 'right': data_group2['right'][group2_subjects]},
-                                         result, outdir, group_names[0], group_names[1], param_name, alpha=cluster_threshold, 
-                                         cluster_summary=cluster_summary, clobber=clobber)
-                    cluster_summary.to_csv(cluster_summary_file)
-
-                plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected, 
+            # ---- Plot results ----
+            t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
+            mask = {'left': result['left'].mask, 'right': result['right'].mask}
+            mean_titles = [f'{group_names[0]} (n={len(group1_subjects)})', f'{group_names[1]} (n={len(group2_subjects)})']
+            if correction is not None:
+                plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_fwe_corrected, 
                                                 p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
-                                                mean_titles=mean_titles, stats_titles='Difference', t_lim=[-5, 5], 
-                                                mask=mask, cb_mean_title=f'Mean {param_name}', clobber=clobber, **kwargs)
-            else:
-                print(f'{outdir} exists! Use clobber to overwrite.')
+                                                mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, 
+                                                mask=mask, t_lim=[-5, 5], clobber=clobber, 
+                                                cb_mean_title=f'Mean {param_name}', **kwargs)
+                cluster_plot.boxplot({'left': data_group1['left'][group1_subjects], 'right': data_group1['right'][group1_subjects]}, 
+                                        {'left': data_group2['left'][group2_subjects], 'right': data_group2['right'][group2_subjects]},
+                                        result, outdir, group_names[0], group_names[1], param_name, alpha=cluster_threshold, 
+                                        cluster_summary=cluster_summary, clobber=clobber)
+                cluster_summary.to_csv(cluster_summary_file)
+
+            plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected, 
+                                            p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
+                                            mean_titles=mean_titles, stats_titles='Difference', t_lim=[-5, 5], 
+                                            mask=mask, cb_mean_title=f'Mean {param_name}', clobber=clobber, **kwargs)
 
     return result, cluster_mask, cluster_summary
 
