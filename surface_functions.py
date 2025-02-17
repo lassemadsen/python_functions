@@ -211,7 +211,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
             print(f'Plotting results to {outdir}...')
             # ---- Calculate mean for each group ---- 
             mean_data = {'Group1': {'left': data_group1['left'][group1_subjects].mean(axis=1), 'right': data_group1['right'][group1_subjects].mean(axis=1)},
-                            'Group2': {'left': data_group2['left'][group2_subjects].mean(axis=1), 'right': data_group2['right'][group2_subjects].mean(axis=1)}}
+                         'Group2': {'left': data_group2['left'][group2_subjects].mean(axis=1), 'right': data_group2['right'][group2_subjects].mean(axis=1)}}
 
             # ---- Plot results ----
             t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
@@ -225,7 +225,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
                                                 cb_mean_title=f'Mean {param_name}', **kwargs)
                 cluster_plot.boxplot({'left': data_group1['left'][group1_subjects], 'right': data_group1['right'][group1_subjects]}, 
                                         {'left': data_group2['left'][group2_subjects], 'right': data_group2['right'][group2_subjects]},
-                                        result, outdir, group_names[0], group_names[1], param_name, alpha=cluster_threshold, 
+                                        result, outdir, group_names[0], group_names[1], param_name, alpha=alpha, 
                                         cluster_summary=cluster_summary, clobber=clobber)
                 cluster_summary.to_csv(cluster_summary_file)
 
@@ -351,7 +351,7 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
                 cluster_plot.boxplot({'left': data1['left'][common_subjects], 'right': data1['right'][common_subjects]},
                                     {'left': data2['left'][common_subjects], 'right': data2['right'][common_subjects]},
                                     result, outdir, group_names[0], group_names[1], param_name, paired=True,
-                                    cluster_summary=cluster_summary, alpha=cluster_threshold, clobber=clobber)
+                                    cluster_summary=cluster_summary, alpha=alpha, clobber=clobber)
                 cluster_summary.to_csv(cluster_summary_file)
             plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected,
                                             p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
@@ -630,8 +630,9 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
                                         cluster_mask=cluster_mask, mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', 
                                         clobber=clobber, **kwargs)
                 cluster_plot.correlation_plot(result, {'left': surface_data['left'][common_subjects], 'right': surface_data['right'][common_subjects]},
-                                                indep_name, common_subjects, outdir, clobber=clobber)
+                                              indep_name, common_subjects, outdir, alpha=alpha, clobber=clobber)
                 cluster_summary.to_csv(cluster_summary_file)
+                
             plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, 
                                     mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', clobber=clobber, **kwargs)
 
