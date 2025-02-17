@@ -308,33 +308,30 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
             outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
             cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
 
-            if not os.path.isdir(outdir) or not os.listdir(outdir) or clobber:
-                Path(outdir).mkdir(exist_ok=True, parents=True)
-                print(f'Plotting results to {outdir}...')
-                # ---- Calculate mean for each group ---- 
-                mean_data = {'Group1': {'left': data1['left'][common_subjects].mean(axis=1), 'right': data1['right'][common_subjects].mean(axis=1)},
-                             'Group2': {'left': data2['left'][common_subjects].mean(axis=1), 'right': data2['right'][common_subjects].mean(axis=1)}}
+            Path(outdir).mkdir(exist_ok=True, parents=True)
+            print(f'Plotting results to {outdir}...')
+            # ---- Calculate mean for each group ---- 
+            mean_data = {'Group1': {'left': data1['left'][common_subjects].mean(axis=1), 'right': data1['right'][common_subjects].mean(axis=1)},
+                        'Group2': {'left': data2['left'][common_subjects].mean(axis=1), 'right': data2['right'][common_subjects].mean(axis=1)}}
 
-                # ---- Plot results ----
-                mask = {'left': result['left'].mask, 'right': result['right'].mask}
-                t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
-                mean_titles = [f'{group_names[0]} (n={len(common_subjects)})', f'{group_names[1]} (n={len(common_subjects)})']
-                if correction is not None:
-                    plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_fwe_corrected, 
-                                                    p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
-                                                    mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, 
-                                                    mask=mask, t_lim=[-5, 5], clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
-                    cluster_plot.boxplot({'left': data1['left'][common_subjects], 'right': data1['right'][common_subjects]},
-                                         {'left': data2['left'][common_subjects], 'right': data2['right'][common_subjects]},
-                                         result, outdir, group_names[0], group_names[1], param_name, paired=True,
-                                         cluster_summary=cluster_summary, alpha=cluster_threshold, clobber=clobber)
-                    cluster_summary.to_csv(cluster_summary_file)
-                plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected,
-                                                 p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
-                                                 mean_titles=mean_titles, stats_titles='Difference', t_lim=[-5, 5], mask=mask,
-                                                 clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
-            else:
-                print(f'{outdir} exists! Use clobber to overwrite.')
+            # ---- Plot results ----
+            mask = {'left': result['left'].mask, 'right': result['right'].mask}
+            t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
+            mean_titles = [f'{group_names[0]} (n={len(common_subjects)})', f'{group_names[1]} (n={len(common_subjects)})']
+            if correction is not None:
+                plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_fwe_corrected, 
+                                                p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
+                                                mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, 
+                                                mask=mask, t_lim=[-5, 5], clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
+                cluster_plot.boxplot({'left': data1['left'][common_subjects], 'right': data1['right'][common_subjects]},
+                                    {'left': data2['left'][common_subjects], 'right': data2['right'][common_subjects]},
+                                    result, outdir, group_names[0], group_names[1], param_name, paired=True,
+                                    cluster_summary=cluster_summary, alpha=cluster_threshold, clobber=clobber)
+                cluster_summary.to_csv(cluster_summary_file)
+            plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected,
+                                            p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
+                                            mean_titles=mean_titles, stats_titles='Difference', t_lim=[-5, 5], mask=mask,
+                                            clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
     
     return result, common_subjects, cluster_mask, cluster_summary
 
@@ -583,26 +580,23 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
                 outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
                 cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
 
-            if not os.path.isdir(outdir) or not os.listdir(outdir) or clobber:
-                Path(outdir).mkdir(exist_ok=True, parents=True)
-                print(f'Plotting results to {outdir}...')
+            Path(outdir).mkdir(exist_ok=True, parents=True)
+            print(f'Plotting results to {outdir}...')
 
-                # ---- Plot results ----
-                mask = {'left': result['left'].mask, 'right': result['right'].mask}
-                t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
-            
-                title = f'{indep_name}~{predictor_name} (n={len(common_subjects)})'
-                if correction is not None:
-                    plot_stats.plot_tval(t_value, outfile_fwe_corrected, p_threshold=cluster_threshold, df=result['left'].df, 
-                                         cluster_mask=cluster_mask, mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', 
-                                         clobber=clobber, **kwargs)
-                    cluster_plot.correlation_plot(result, {'left': surface_data['left'][common_subjects], 'right': surface_data['right'][common_subjects]},
-                                                  indep_name, common_subjects, outdir, clobber=clobber)
-                    cluster_summary.to_csv(cluster_summary_file)
-                plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, 
-                                     mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', clobber=clobber, **kwargs)
-            else:
-                print(f'{outdir} exists! Use clobber to overwrite.')
+            # ---- Plot results ----
+            mask = {'left': result['left'].mask, 'right': result['right'].mask}
+            t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
+        
+            title = f'{indep_name}~{predictor_name} (n={len(common_subjects)})'
+            if correction is not None:
+                plot_stats.plot_tval(t_value, outfile_fwe_corrected, p_threshold=cluster_threshold, df=result['left'].df, 
+                                        cluster_mask=cluster_mask, mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', 
+                                        clobber=clobber, **kwargs)
+                cluster_plot.correlation_plot(result, {'left': surface_data['left'][common_subjects], 'right': surface_data['right'][common_subjects]},
+                                                indep_name, common_subjects, outdir, clobber=clobber)
+                cluster_summary.to_csv(cluster_summary_file)
+            plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, 
+                                    mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', clobber=clobber, **kwargs)
 
     return result, common_subjects, cluster_mask, cluster_summary
     
