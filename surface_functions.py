@@ -5,7 +5,7 @@ Many functions are dependent on the Brainstat python module: https://brainstat.r
 Author: Lasse Stensvig Madsen
 Mail: lasse.madsen@cfin.au.dk
 
-Last edited: 12/9 - 2023
+Last edited: 17/2 - 2025
 """
 
 import numpy as np
@@ -102,22 +102,36 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
     covars : pandas DataFrame, optional
         Dataframe with covariates (one per row) and header as id (matching ids in data_group1 and data_group2).
     correction : str or None, optional
-        Correction method for multiple comparisons. If None, no correction is performed.
+        Correction method for multiple comparisons. If None, no correction is performed (default: 'rft').
     cluster_threshold : float, optional
-        Threshold for cluster formation, in percent (default 0.001).
+        Primary cluster defining threshold (default 0.001).
     alpha : float, optional
         Threshold of corrected clusters (default 0.05).
+    plot : bool, optional
+        If True, generate and save result plots (default: True).
+    outdir : str or None, optional
+        Directory where output plots and results will be saved. If None, no output is saved.
+    group_names : tuple of str, optional
+        Names of the two groups being compared (default: ('Group 1', 'Group 2')).
+    param_name : str or None, optional
+        Name of the parameter being analyzed. If None, a warning will be printed.
+    clobber : bool, optional
+        If True, overwrite existing output files (default: False).
+    **kwargs : dict
+        Additional keyword arguments for plotting functions.
     
     Returns
     -------
     result : dict
         A dictionary containing the SLM results for each hemisphere, with 'left' and 'right' as keys.
-    cluster_mask : np.ndarray
-        An array containing the binary cluster mask for significant clusters, shape is (num_vertices,).
-    cluster_summary : pandas DataFrame
-        A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
-        'size', and 'p'.
+    cluster_mask : dict of np.ndarray
+        A dictionary containing the binary cluster mask for significant clusters for each hemisphere, with 'left' and 'right' as keys.
+    cluster_summary : pandas DataFrame or None
+        A DataFrame containing information about each significant cluster if correction is applied. The DataFrame includes columns:
+        'hemisphere' (left or right), 'x', 'y', 'z' (coordinates of cluster peak), 'size' (cluster size), and 'p' (corrected p-value).
+        Returns None if no correction is applied.
     """
+
     if not correction in {'rft'} and correction is not None:
         print('Wrong correction method! Should be "rft" or None. Please try again.')
         return
@@ -230,26 +244,41 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
     
     Parameters
     ----------
-    data_group1 : dict of DataFrame
+    data1 : dict of DataFrame
         A dictionary containing the data for the first set of measurements with 'left' and 'right' as keys.
-    data_group2 : dict of DataFrame
+    data2 : dict of DataFrame
         A dictionary containing the data for the second set of measurements with 'left' and 'right' as keys.
     correction : str or None, optional
         Correction method for multiple comparisons. If None, no correction is performed.
-    cluster_threshold : float, optional
-        Threshold for cluster formation, in percent (default 0.001).
     alpha : float, optional
         Threshold of corrected clusters (default 0.05).
+    plot : bool, optional
+        If True, generate and save result plots (default: True).
+    outdir : str or None, optional
+        Directory where output plots and results will be saved. If None, no output is saved.
+    group_names : tuple of str, optional
+        Names of the two groups being compared (default: ('Group 1', 'Group 2')).
+    param_name : str or None, optional
+        Name of the parameter being analyzed. If None, a warning will be printed.
+    clobber : bool, optional
+        If True, overwrite existing output files (default: False).
+    **kwargs : dict
+        Additional keyword arguments for plotting functions.
     
     Returns
     -------
     result : dict
         A dictionary containing the SLM results for each hemisphere, with 'left' and 'right' as keys.
-    cluster_mask : np.ndarray
-        An array containing the binary cluster mask for significant clusters, shape is (num_vertices,).
-    cluster_summary : pandas DataFrame
-        A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
-        'size', and 'p'.
+    common_subjects : list
+        List containing IDs used in the analysis (included in both data1 and data2)
+    cluster_mask : dict of np.ndarray
+        A dictionary containing the binary cluster mask for significant clusters for each hemisphere, with 'left' and 'right' as keys.
+    cluster_summary : pandas DataFrame or None
+        A DataFrame containing information about each significant cluster if correction is applied. The DataFrame includes columns:
+        'hemisphere' (left or right), 'x', 'y', 'z' (coordinates of cluster peak), 'size' (cluster size), and 'p' (corrected p-value).
+        Returns None if no correction is applied.
+    
+
     """
     if not correction in {'rft', 'fdr'} and correction is not None:
         print('Wrong correction method! Should be "rft" or "fdr" or None. Please try again.')
@@ -352,14 +381,15 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
     Returns
     -------
     result : dict
-        A dictionary containing the SLM corrrelation results for each hemisphere, with 'left' and 'right' as keys.
+        A dictionary containing the SLM results for each hemisphere, with 'left' and 'right' as keys.
     common_subjects : list
-        List of subjects used for the correlation analysis.
-    cluster_mask : np.ndarray
-        An array containing the binary cluster mask for significant clusters, shape is (num_vertices,).
-    cluster_summary : pandas DataFrame
-        A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
-        'size', and 'p'.
+        List containing IDs used in the analysis (included in both data1 and data2)
+    cluster_mask : dict of np.ndarray
+        A dictionary containing the binary cluster mask for significant clusters for each hemisphere, with 'left' and 'right' as keys.
+    cluster_summary : pandas DataFrame or None
+        A DataFrame containing information about each significant cluster if correction is applied. The DataFrame includes columns:
+        'hemisphere' (left or right), 'x', 'y', 'z' (coordinates of cluster peak), 'size' (cluster size), and 'p' (corrected p-value).
+        Returns None if no correction is applied.
     """
     if not correction in {'rft', 'fdr'} and correction is not None:
         print('Wrong correction method! Should be "rft" or "fdr" or None. Please try again.')
@@ -460,24 +490,35 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         Name of the surface data for the second surface measurement (default is 'surface_data')
     covariates : pandas DataFrame, optional
         Dataframe with covariates (one per row) and header as id (matching ids in surface_data and surface_data_predictor).
-    correction : str, optional
-        Multiple comparison correction: 'rft' or 'fdr'.
+    correction : str or None, optional
+        Correction method for multiple comparisons. If None, no correction is performed (default: 'rft').
     cluster_threshold : float, optional
-        Threshold for cluster formation, in percent (default 0.001).
+        Primary cluster defining threshold (default 0.001).
     alpha : float, optional
         Threshold of corrected clusters (default 0.05).
+    plot : bool, optional
+        If True, generate and save result plots (default: True).
+    outdir : str or None, optional
+        Directory where output plots and results will be saved. If None, no output is saved.
+    indep_name : str or None, optional
+        Name of the independent variable. If None, a warning will be printed.
+    clobber : bool, optional
+        If True, overwrite existing output files (default: False).
+    **kwargs : dict
+        Additional keyword arguments for plotting functions.
         
     Returns
     -------
     result : dict
-        A dictionary containing the SLM corrrelation results for each hemisphere, with 'left' and 'right' as keys.
+        A dictionary containing the SLM results for each hemisphere, with 'left' and 'right' as keys.
     common_subjects : list
-        List of subjects used for the correlation analysis.
-    cluster_mask : np.ndarray
-        An array containing the binary cluster mask for significant clusters, shape is (num_vertices,).
-    cluster_summary : pandas DataFrame
-        A DataFrame containing information about each significant cluster, with columns 'hemisphere', 'x', 'y', 'z', 
-        'size', and 'p'.
+        List containing IDs used in the analysis (included in both data1 and data2)
+    cluster_mask : dict of np.ndarray
+        A dictionary containing the binary cluster mask for significant clusters for each hemisphere, with 'left' and 'right' as keys.
+    cluster_summary : pandas DataFrame or None
+        A DataFrame containing information about each significant cluster if correction is applied. The DataFrame includes columns:
+        'hemisphere' (left or right), 'x', 'y', 'z' (coordinates of cluster peak), 'size' (cluster size), and 'p' (corrected p-value).
+        Returns None if no correction is applied.
     """
     if not correction in {'rft', 'fdr'} and correction is not None:
         print('Wrong correction method! Should be "rft" or "fdr" or None. Please try again.')
@@ -632,12 +673,15 @@ def get_cluster_summary(result, alpha):
     -----------
     result : dict
         A dictionary containing the results of a statistical analysis for each hemisphere with 'left' and 'right' as keys.
+    alpha : float
+        Threshold of corrected clusters.
 
     Returns:
     --------
-    cluster_summary : pandas.DataFrame
-        A DataFrame with information on cluster area (mm^2), cluster_id, cluster location (MNI coordinates),
-        anatomical location, and cluster corrected p-value.
+    cluster_summary : pandas DataFrame
+        A DataFrame containing information about each significant cluster if correction is applied. The DataFrame includes columns:
+        'hemisphere' (left or right), 'x', 'y', 'z' (coordinates of cluster peak), 'size' (cluster size), and 'p' (corrected p-value).
+        Returns None if no correction is applied.
     """
     cluster_summary = pd.DataFrame({'clusid': [], 
                                     'Anatomical location (peak)': [], 
@@ -670,8 +714,6 @@ def get_cluster_summary(result, alpha):
                     if abs(result[hemisphere].t[0][index]) > max_value:
                         max_value = result[hemisphere].t[0][index]
                         peak_vertex = index
-
-                # peak_vertex = list(result[hemisphere].P['peak'][posneg][result[hemisphere].P['peak'][posneg].clusid == clusid].vertid)[0]
 
                 anatomical_label = labels[peak_vertex]
                 anatomical_loc = aal_full[aal_full.val == anatomical_label].name.squeeze()
