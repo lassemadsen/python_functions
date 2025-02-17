@@ -172,7 +172,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
     if correction is None:
         cluster_summary = None
     else:
-        cluster_summary = get_cluster_summary(result)
+        cluster_summary = get_cluster_summary(result, alpha)
 
     if plot:
         if param_name is None:
@@ -213,7 +213,8 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
                                                     cb_mean_title=f'Mean {param_name}', **kwargs)
                     cluster_plot.boxplot({'left': data_group1['left'][group1_subjects], 'right': data_group1['right'][group1_subjects]}, 
                                          {'left': data_group2['left'][group2_subjects], 'right': data_group2['right'][group2_subjects]},
-                                         result, outdir, group_names[0], group_names[1], param_name, alpha=cluster_threshold, clobber=clobber)
+                                         result, outdir, group_names[0], group_names[1], param_name, alpha=cluster_threshold, 
+                                         cluster_summary=cluster_summary, clobber=clobber)
                     cluster_summary.to_csv(cluster_summary_file)
 
                 plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected, 
@@ -293,7 +294,7 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
     if correction is None:
         cluster_summary = None
     else:
-        cluster_summary = get_cluster_summary(result)
+        cluster_summary = get_cluster_summary(result, alpha)
 
     if plot:
         if param_name is None:
@@ -325,7 +326,8 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
                                                     mask=mask, t_lim=[-5, 5], clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
                     cluster_plot.boxplot({'left': data1['left'][common_subjects], 'right': data1['right'][common_subjects]},
                                          {'left': data2['left'][common_subjects], 'right': data2['right'][common_subjects]},
-                                         result, outdir, group_names[0], group_names[1], param_name, paired=True, alpha=cluster_threshold, clobber=clobber)
+                                         result, outdir, group_names[0], group_names[1], param_name, paired=True,
+                                         cluster_summary=cluster_summary, alpha=cluster_threshold, clobber=clobber)
                     cluster_summary.to_csv(cluster_summary_file)
                 plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected,
                                                  p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
@@ -559,7 +561,7 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
     if correction is None:
         cluster_summary = None
     else:
-        cluster_summary = get_cluster_summary(result)
+        cluster_summary = get_cluster_summary(result, alpha)
     
     if plot:
         if indep_name is None or predictor_name == 'surface_data':
@@ -632,7 +634,7 @@ def get_cluster_mask(result, correction, alpha):
 
     return cluster_mask
 
-def get_cluster_summary(result):
+def get_cluster_summary(result, alpha):
     """
     Calculate summary of surviving clusters.
 
@@ -660,7 +662,7 @@ def get_cluster_summary(result):
         mni_coord = result[hemisphere].surf.Points
         labels = np.loadtxt(ATLAS_LABELS[hemisphere], skiprows=1)
         for posneg in [0, 1]:
-            cluster_survived = result[hemisphere].P['clus'][posneg][result[hemisphere].P['clus'][posneg].P < 0.05]
+            cluster_survived = result[hemisphere].P['clus'][posneg][result[hemisphere].P['clus'][posneg].P < alpha]
 
             if cluster_survived.empty:
                 continue
