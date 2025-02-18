@@ -89,7 +89,7 @@ surf = {'left': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nli
         'right': read_surface(f'{PUBLIC_PATH}/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.gii')}
 
 def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', cluster_threshold=0.001, alpha=0.05, 
-                   plot=True, outdir=None, group_names=('Group 1', 'Group2'), param_name=None, clobber=False, **kwargs):
+                   plot=False, outdir=None, group_names=('Group 1', 'Group2'), param_name=None, clobber=False, **kwargs):
     """
     Perform an unpaired t-test on the two groups of data.
     
@@ -108,7 +108,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
     alpha : float, optional
         Threshold of corrected clusters (default 0.05).
     plot : bool, optional
-        If True, generate and save result plots (default: True).
+        If True, generate and save result plots (default: False).
     outdir : str or None, optional
         Directory where output plots and results will be saved. If None, no output is saved.
     group_names : tuple of str, optional
@@ -237,7 +237,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
     return result, cluster_mask, cluster_summary
 
 def paired_ttest(data1, data2, correction='rft', cluster_threshold=0.001, alpha=0.05, 
-                 plot=True, outdir=None, group_names=('Group 1', 'Group2'), param_name=None, 
+                 plot=False, outdir=None, group_names=('Group 1', 'Group2'), param_name=None, 
                  clobber=False, **kwargs):
     """
     Perform a paired t-test on the data.
@@ -253,7 +253,7 @@ def paired_ttest(data1, data2, correction='rft', cluster_threshold=0.001, alpha=
     alpha : float, optional
         Threshold of corrected clusters (default 0.05).
     plot : bool, optional
-        If True, generate and save result plots (default: True).
+        If True, generate and save result plots (default: False).
     outdir : str or None, optional
         Directory where output plots and results will be saved. If None, no output is saved.
     group_names : tuple of str, optional
@@ -362,7 +362,8 @@ def paired_ttest(data1, data2, correction='rft', cluster_threshold=0.001, alpha=
     
     return result, common_subjects, cluster_mask, cluster_summary
 
-def correlation(surface_data, indep_data, correction='rft', cluster_threshold=0.001, alpha=0.05):
+def correlation(surface_data, indep_data, correction='rft', cluster_threshold=0.001, alpha=0.05, 
+                plot=False, outdir=None, dep_name=None, clobber=False, **kwargs):
     """
     Calculate the correlation of surface with value (e.g. demography data such as age or cognitive score)
 
@@ -371,14 +372,24 @@ def correlation(surface_data, indep_data, correction='rft', cluster_threshold=0.
     surface_data : dict of DataFrame
         A dictionary containing the data for the surface measurements with 'left' and 'right' as keys.
     indep_data : DataFrame
-        Pandas dataframe with subject_id as column headers (same id as in surface_data)
-        If more than one row, the rest of the rows are considered covariates.
+        Pandas dataframe with subject_id as index and data as columns
+        If more than one columns, the rest are considered covariates.
     correction : str, optional | 'rft'
         Multiple comparison correction: 'rft' or 'fdr'.
     cluster_threshold : float, optional
-        Threshold for cluster formation, in percent (default 0.001).
+        Primary cluster defining threshold (default 0.001).
     alpha : float, optional
         Threshold of corrected clusters (default 0.05).
+    plot : bool, optional
+        If True, generate and save result plots (default: False).
+    outdir : str or None, optional
+        Directory where output plots and results will be saved. If None, no output is saved.
+    dep_name : str or None, optional
+        Name of the dependent variable. Has to be set if plot=True.
+    clobber : bool, optional
+        If True, overwrite existing output files (default: False).
+    **kwargs : dict
+        Additional keyword arguments for plotting functions.
         
     Returns
     -------
@@ -396,10 +407,17 @@ def correlation(surface_data, indep_data, correction='rft', cluster_threshold=0.
     if not correction in {'rft', 'fdr'} and correction is not None:
         print('Wrong correction method! Should be "rft" or "fdr" or None. Please try again.')
         return
+    if plot:
+        if dep_name is None:
+            print('Please set parameter name when plot=True.')
+            return
+        elif outdir is None:
+            print('Please specify outdir when plot=True.')
+            return
 
     result = {'left': [], 'right': []}
 
-    common_subjects = sorted(list(set(surface_data['left'].columns) & set(surface_data['right'].columns) & set(indep_data.columns)))
+    common_subjects = sorted(list(set(surface_data['left'].columns) & set(surface_data['right'].columns) & set(indep_data.index)))
 
     for hemisphere in ['left', 'right']:
         data = surface_data[hemisphere][common_subjects].T
@@ -413,12 +431,12 @@ def correlation(surface_data, indep_data, correction='rft', cluster_threshold=0.
 
         terms = {}
         model = []
-        for var in indep_data[common_subjects].index: 
-            terms[var] = FixedEffect(indep_data[common_subjects].loc[var, :], names=var)
+        for var in indep_data: 
+            terms[var] = FixedEffect(indep_data.loc[common_subjects, var], names=var)
 
             model = model + terms[var]
 
-        contrast = indep_data[common_subjects].loc[indep_data.index[0], :].values
+        contrast = indep_data.loc[common_subjects,indep_data.columns[0]].values
 
         # --- Run model ---
         # slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
@@ -433,9 +451,37 @@ def correlation(surface_data, indep_data, correction='rft', cluster_threshold=0.
     if correction is None:
         cluster_summary = None
     else:
-        cluster_summary = get_cluster_summary(result)
+        cluster_summary = get_cluster_summary(result, alpha)
 
-    # TODO implement plotting
+    if plot:
+        indep_names = indep_data.columns
+        outdir = f'{outdir}/Correlation/{dep_name}_vs_{"+".join(indep_names)}'
+        basename = f'{dep_name}_vs_{"+".join(indep_names)}_p{cluster_threshold}'
+        outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
+        outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
+        cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
+
+        Path(outdir).mkdir(exist_ok=True, parents=True)
+        print(f'Plotting results to {outdir}...')
+
+        # ---- Plot results ----
+        mask = {'left': result['left'].mask, 'right': result['right'].mask}
+        t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
+    
+        title = f'{dep_name}~{indep_names[0]} (n={len(common_subjects)})'
+        if correction is not None:
+            plot_stats.plot_tval(t_value, outfile_fwe_corrected, p_threshold=cluster_threshold, df=result['left'].df, 
+                                 cluster_mask=cluster_mask, mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', 
+                                 clobber=clobber, **kwargs)
+            cluster_plot.correlation_plot(result, indep_data.loc[common_subjects, :], 
+                                          {'left': surface_data['left'][common_subjects], 'right': surface_data['right'][common_subjects]},
+                                          dep_name, indep_names[0], outdir, cluster_summary=cluster_summary, alpha=alpha, clobber=clobber)
+            cluster_summary.to_csv(cluster_summary_file)
+            
+        plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, 
+                                mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', clobber=clobber, **kwargs)
+
+    # TODO test plotting
     
     return result, common_subjects, cluster_mask, cluster_summary
 
@@ -479,7 +525,7 @@ def correlation_pearson(param, indep_data):
     return result, common_subjects
 
 def correlation_other_surface(surface_data_dep, surface_data_indep, covariates=None, correction='rft', 
-                              cluster_threshold=0.001, alpha=0.05, plot=True, outdir=None, 
+                              cluster_threshold=0.001, alpha=0.05, plot=False, outdir=None, 
                               dep_name=None, indep_name=None, clobber=False, **kwargs):
     """
     Calculate the correlation of two surfaces 
@@ -499,7 +545,7 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covariates=N
     alpha : float, optional
         Threshold of corrected clusters (default 0.05).
     plot : bool, optional
-        If True, generate and save result plots (default: True).
+        If True, generate and save result plots (default: False).
     outdir : str or None, optional
         Directory where output plots and results will be saved. If None, no output is saved.
     dep_name : str or None, optional
@@ -637,7 +683,7 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covariates=N
                                     clobber=clobber, **kwargs)
             cluster_plot.correlation_plot(result, {'left': surface_data_dep['left'][common_subjects], 'right': surface_data_dep['right'][common_subjects]},
                                           {'left': surface_data_indep['left'][common_subjects], 'right': surface_data_indep['right'][common_subjects]},
-                                          dep_name, indep_name, common_subjects, outdir, cluster_summary=cluster_summary, alpha=alpha, clobber=clobber)
+                                          dep_name, indep_name, outdir, cluster_summary=cluster_summary, alpha=alpha, clobber=clobber)
             cluster_summary.to_csv(cluster_summary_file)
             
         plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, 
