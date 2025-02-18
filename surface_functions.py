@@ -101,7 +101,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
         A dictionary containing the data for the second group of subjects, with 'left' and 'right' as keys.
     covars : pandas DataFrame, optional
         Dataframe with covariates (one per row) and header as id (matching ids in data_group1 and data_group2).
-    correction : str or None, optional
+    correction : str or None, optional | 'rft'
         Correction method for multiple comparisons. If None, no correction is performed (default: 'rft').
     cluster_threshold : float, optional
         Primary cluster defining threshold (default 0.001).
@@ -236,7 +236,7 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
 
     return result, cluster_mask, cluster_summary
 
-def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0.05, 
+def paired_ttest(data1, data2, correction='rft', cluster_threshold=0.001, alpha=0.05, 
                  plot=True, outdir=None, group_names=('Group 1', 'Group2'), param_name=None, 
                  clobber=False, **kwargs):
     """
@@ -248,7 +248,7 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
         A dictionary containing the data for the first set of measurements with 'left' and 'right' as keys.
     data2 : dict of DataFrame
         A dictionary containing the data for the second set of measurements with 'left' and 'right' as keys.
-    correction : str or None, optional
+    correction : str or None, optional | 'rft'
         Correction method for multiple comparisons. If None, no correction is performed.
     alpha : float, optional
         Threshold of corrected clusters (default 0.05).
@@ -283,6 +283,13 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
     if not correction in {'rft', 'fdr'} and correction is not None:
         print('Wrong correction method! Should be "rft" or "fdr" or None. Please try again.')
         return
+    if plot:
+        if param_name is None:
+            print('Please set parameter name when plot=True.')
+            return
+        elif outdir is None:
+            print('Please specify outdir when plot=True.')
+            return
 
     result = {'left': [], 'right': []}
 
@@ -322,45 +329,40 @@ def paired_ttest(data1, data2, correction=None, cluster_threshold=0.001, alpha=0
         cluster_summary = get_cluster_summary(result, alpha)
 
     if plot:
-        if param_name is None:
-            print('Please set parameter name!')
-        elif outdir is None:
-            print('Please specify outdir.')
-        else:
-            outdir = f'{outdir}/Paired_ttest/{group_names[0].replace(" ", "_")}_vs_{group_names[1].replace(" ", "_")}/{param_name.replace(" ", "_")}'
-            basename = f'{param_name.replace(" ", "_")}_p{cluster_threshold}'
-            outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
-            outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
-            cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
+        outdir = f'{outdir}/Paired_ttest/{group_names[0].replace(" ", "_")}_vs_{group_names[1].replace(" ", "_")}/{param_name.replace(" ", "_")}'
+        basename = f'{param_name.replace(" ", "_")}_p{cluster_threshold}'
+        outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
+        outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
+        cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
 
-            Path(outdir).mkdir(exist_ok=True, parents=True)
-            print(f'Plotting results to {outdir}...')
-            # ---- Calculate mean for each group ---- 
-            mean_data = {'Group1': {'left': data1['left'][common_subjects].mean(axis=1), 'right': data1['right'][common_subjects].mean(axis=1)},
-                        'Group2': {'left': data2['left'][common_subjects].mean(axis=1), 'right': data2['right'][common_subjects].mean(axis=1)}}
+        Path(outdir).mkdir(exist_ok=True, parents=True)
+        print(f'Plotting results to {outdir}...')
+        # ---- Calculate mean for each group ---- 
+        mean_data = {'Group1': {'left': data1['left'][common_subjects].mean(axis=1), 'right': data1['right'][common_subjects].mean(axis=1)},
+                    'Group2': {'left': data2['left'][common_subjects].mean(axis=1), 'right': data2['right'][common_subjects].mean(axis=1)}}
 
-            # ---- Plot results ----
-            mask = {'left': result['left'].mask, 'right': result['right'].mask}
-            t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
-            mean_titles = [f'{group_names[0]} (n={len(common_subjects)})', f'{group_names[1]} (n={len(common_subjects)})']
-            if correction is not None:
-                plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_fwe_corrected, 
-                                                p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
-                                                mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, 
-                                                mask=mask, t_lim=[-5, 5], clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
-                cluster_plot.boxplot({'left': data1['left'][common_subjects], 'right': data1['right'][common_subjects]},
-                                    {'left': data2['left'][common_subjects], 'right': data2['right'][common_subjects]},
-                                    result, outdir, group_names[0], group_names[1], param_name, paired=True,
-                                    cluster_summary=cluster_summary, alpha=alpha, clobber=clobber)
-                cluster_summary.to_csv(cluster_summary_file)
-            plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected,
+        # ---- Plot results ----
+        mask = {'left': result['left'].mask, 'right': result['right'].mask}
+        t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
+        mean_titles = [f'{group_names[0]} (n={len(common_subjects)})', f'{group_names[1]} (n={len(common_subjects)})']
+        if correction is not None:
+            plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_fwe_corrected, 
                                             p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
-                                            mean_titles=mean_titles, stats_titles='Difference', t_lim=[-5, 5], mask=mask,
-                                            clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
+                                            mean_titles=mean_titles, stats_titles='Difference', cluster_mask=cluster_mask, 
+                                            mask=mask, t_lim=[-5, 5], clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
+            cluster_plot.boxplot({'left': data1['left'][common_subjects], 'right': data1['right'][common_subjects]},
+                                {'left': data2['left'][common_subjects], 'right': data2['right'][common_subjects]},
+                                result, outdir, group_names[0], group_names[1], param_name, paired=True,
+                                cluster_summary=cluster_summary, alpha=alpha, clobber=clobber)
+            cluster_summary.to_csv(cluster_summary_file)
+        plot_mean_stats.plot_mean_stats(mean_data['Group1'], mean_data['Group2'], t_value, outfile_uncorrected,
+                                        p_threshold=cluster_threshold, df=result['left'].df, plot_tvalue=True, 
+                                        mean_titles=mean_titles, stats_titles='Difference', t_lim=[-5, 5], mask=mask,
+                                        clobber=clobber, cb_mean_title=f'Mean {param_name}', **kwargs)
     
     return result, common_subjects, cluster_mask, cluster_summary
 
-def correlation(surface_data, predictors, correction=None, cluster_threshold=0.001, alpha=0.05):
+def correlation(surface_data, indep_data, correction='rft', cluster_threshold=0.001, alpha=0.05):
     """
     Calculate the correlation of surface with value (e.g. demography data such as age or cognitive score)
 
@@ -368,10 +370,10 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
     ----------
     surface_data : dict of DataFrame
         A dictionary containing the data for the surface measurements with 'left' and 'right' as keys.
-    predictors : DataFrame
+    indep_data : DataFrame
         Pandas dataframe with subject_id as column headers (same id as in surface_data)
         If more than one row, the rest of the rows are considered covariates.
-    correction : str, optional
+    correction : str, optional | 'rft'
         Multiple comparison correction: 'rft' or 'fdr'.
     cluster_threshold : float, optional
         Threshold for cluster formation, in percent (default 0.001).
@@ -397,7 +399,7 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
 
     result = {'left': [], 'right': []}
 
-    common_subjects = sorted(list(set(surface_data['left'].columns) & set(surface_data['right'].columns) & set(predictors.columns)))
+    common_subjects = sorted(list(set(surface_data['left'].columns) & set(surface_data['right'].columns) & set(indep_data.columns)))
 
     for hemisphere in ['left', 'right']:
         data = surface_data[hemisphere][common_subjects].T
@@ -411,12 +413,12 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
 
         terms = {}
         model = []
-        for predictor in predictors[common_subjects].index: 
-            terms[predictor] = FixedEffect(predictors[common_subjects].loc[predictor, :], names=predictor)
+        for var in indep_data[common_subjects].index: 
+            terms[var] = FixedEffect(indep_data[common_subjects].loc[var, :], names=var)
 
-            model = model + terms[predictor]
+            model = model + terms[var]
 
-        contrast = predictors[common_subjects].loc[predictors.index[0], :].values
+        contrast = indep_data[common_subjects].loc[indep_data.index[0], :].values
 
         # --- Run model ---
         # slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
@@ -432,10 +434,12 @@ def correlation(surface_data, predictors, correction=None, cluster_threshold=0.0
         cluster_summary = None
     else:
         cluster_summary = get_cluster_summary(result)
+
+    # TODO implement plotting
     
     return result, common_subjects, cluster_mask, cluster_summary
 
-def correlation_pearson(param, predictor):
+def correlation_pearson(param, indep_data):
     """
     Pearson correlation of surface with value (e.g. demography data such as age or cognitive score) or surface
 
@@ -443,15 +447,15 @@ def correlation_pearson(param, predictor):
     ----------
     data : dict('left', 'right')
         Independent surface data
-    Predictors : DataFrame
-        Predictiors is a pandas dataframe with subject_id as column headers (same id as in surface_data)
+    indep_data : DataFrame
+        Pandas dataframe with subject_id as column headers (same id as in surface_data)
         If more than one row, the rest of the rows are considere covariates
     """
     
     result = {'left': [], 'right': []}
 
     common_subjects = sorted(list(set(param['left'].columns) & set(param['right'].columns) & 
-                                  set(predictor['left'].columns) & set(predictor['right'].columns)))
+                                  set(indep_data['left'].columns) & set(indep_data['right'].columns)))
 
     for hemisphere in ['left', 'right']:
         data = param[hemisphere][common_subjects].T
@@ -467,30 +471,28 @@ def correlation_pearson(param, predictor):
         # Run model for each vertex
         for i in vert_list:
             # --- Correlation with other surface ---
-            r_corr, _ = pearsonr(predictor[hemisphere][common_subjects].iloc[i,:].values.T, data[[i]])
+            r_corr, _ = pearsonr(indep_data[hemisphere][common_subjects].iloc[i,:].values.T, data[[i]])
             r[i] = r_corr[0]
 
         result[hemisphere] = r
     
     return result, common_subjects
 
-def correlation_other_surface(surface_data, surface_data_predictor, predictor_name='surface_data', covariates=None, 
-                              correction=None, cluster_threshold=0.001, alpha=0.05,
-                              plot=True, outdir=None, indep_name=None, clobber=False, **kwargs):
+def correlation_other_surface(surface_data_dep, surface_data_indep, covariates=None, correction='rft', 
+                              cluster_threshold=0.001, alpha=0.05, plot=True, outdir=None, 
+                              dep_name=None, indep_name=None, clobber=False, **kwargs):
     """
     Calculate the correlation of two surfaces 
 
     Parameters
     ----------
-    surface_data : dict of DataFrame
+    surface_data_dep : dict of DataFrame
         A dictionary containing the data for the first surface measurements with 'left' and 'right' as keys.
-    surface_data_predictor : dict of DataFrame
+    surface_data_indep : dict of DataFrame
         A dictionary containing the data for the second surface measurements with 'left' and 'right' as keys.
-    predictor_name : str, optional
-        Name of the surface data for the second surface measurement (default is 'surface_data')
     covariates : pandas DataFrame, optional
         Dataframe with covariates (one per row) and header as id (matching ids in surface_data and surface_data_predictor).
-    correction : str or None, optional
+    correction : str or 'None', optional | 'rft'
         Correction method for multiple comparisons. If None, no correction is performed (default: 'rft').
     cluster_threshold : float, optional
         Primary cluster defining threshold (default 0.001).
@@ -500,8 +502,10 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         If True, generate and save result plots (default: True).
     outdir : str or None, optional
         Directory where output plots and results will be saved. If None, no output is saved.
+    dep_name : str or None, optional
+        Name of the dependent variable. Has to be set if plot=True.
     indep_name : str or None, optional
-        Name of the independent variable. If None, a warning will be printed.
+        Name of the independent variable. Has to be set if plot=True.
     clobber : bool, optional
         If True, overwrite existing output files (default: False).
     **kwargs : dict
@@ -523,11 +527,19 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
     if not correction in {'rft', 'fdr'} and correction is not None:
         print('Wrong correction method! Should be "rft" or "fdr" or None. Please try again.')
         return
+
+    if plot:
+        if indep_name is None or dep_name is None:
+            print('Please set parameter names when plot=True.')
+            return
+        elif outdir is None:
+            print('Please specify outdir when plot=True.')
+            return
     
     result = {'left': [], 'right': []}
 
-    common_subjects = sorted(list(set(surface_data['left'].columns) & set(surface_data['right'].columns) & 
-                                  set(surface_data_predictor['left'].columns) & set(surface_data_predictor['right'].columns)))
+    common_subjects = sorted(list(set(surface_data_dep['left'].columns) & set(surface_data_dep['right'].columns) & 
+                                  set(surface_data_indep['left'].columns) & set(surface_data_indep['right'].columns)))
                                   
     # Define covariates, if any
     if covariates is not None:
@@ -539,16 +551,16 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
             covar_term = covar_term + FixedEffect(covariates[common_subjects].loc[covar, :], names=covar)
 
     for hemisphere in ['left', 'right']:
-        data = surface_data[hemisphere][common_subjects].T
-        data_predictor = surface_data_predictor[hemisphere][common_subjects].T
+        data_dep = surface_data_dep[hemisphere][common_subjects].T
+        data_indep = surface_data_indep[hemisphere][common_subjects].T
 
         # Get mask
-        mask = (~data.isna().any(axis=0) & ~data_predictor.isna().any(axis=0)).values
+        mask = (~data_dep.isna().any(axis=0) & ~data_indep.isna().any(axis=0)).values
 
         # Brainstat RFT correction does not work well with mask. Values not in mask are set to 0.
         # Note: Unsure how well this works if many vertices are nan.
-        data.iloc[:,~mask] = 0
-        data_predictor.iloc[:,~mask] = 0
+        data_dep.iloc[:,~mask] = 0
+        data_indep.iloc[:,~mask] = 0
         
         # Initialise t values to nan
         t = np.zeros(mask.shape)
@@ -559,7 +571,7 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         # Run model for each vertex
         for i in vert_list:
             # --- Correlation with other surface ---
-            term = FixedEffect(data_predictor[i].values)
+            term = FixedEffect(data_indep[i].values)
             model = term
             contrast = model.x0
 
@@ -568,21 +580,21 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
 
             # --- Run model ---
             slm = SLM(model, contrast)
-            slm.fit(data[[i]])
+            slm.fit(data_dep[[i]])
 
             t[i] = slm.t[0][0]
         
         # Run with mean data to compute multple comparison
-        term_slope = FixedEffect(surface_data_predictor[hemisphere][common_subjects].mean().values, names=predictor_name)
+        term_slope = FixedEffect(surface_data_indep[hemisphere][common_subjects].mean().values)
         model = term_slope
         if covariates is not None:
             model = model + covar_term
 
-        contrast = model.matrix[predictor_name].values
+        contrast = model.x0
 
         # slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
         slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
-        slm.fit(data.values)
+        slm.fit(data_dep.values)
 
         slm.t = np.array([t])
         if correction is not None:
@@ -598,43 +610,38 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
         cluster_summary = get_cluster_summary(result, alpha)
     
     if plot:
-        if indep_name is None or predictor_name == 'surface_data':
-            print('Please set parameter names!')
-        elif outdir is None:
-            print('Please specify outdir.')
+        if covariates is None:
+            outdir = f'{outdir}/Correlation/{dep_name}_vs_{indep_name}'
+            basename = f'{dep_name}_vs_{indep_name}_p{cluster_threshold}'
+            outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
+            outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
+            cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
         else:
+            outdir = f'{outdir}/Correlation/{dep_name}_vs_{indep_name}+{"+".join(covariates.index)}'
+            basename = f'{dep_name}_vs_{indep_name}+{"+".join(covariates.index)}_p{cluster_threshold}'
+            outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
+            outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
+            cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
 
-            if covariates is None:
-                outdir = f'{outdir}/Correlation/{predictor_name}_vs_{indep_name}'
-                basename = f'{predictor_name}_vs_{indep_name}_p{cluster_threshold}'
-                outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
-                outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
-                cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
-            else:
-                outdir = f'{outdir}/Correlation/{predictor_name}_vs_{indep_name}+{"+".join(covariates.index)}'
-                basename = f'{predictor_name}_vs_{indep_name}+{"+".join(covariates.index)}_p{cluster_threshold}'
-                outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
-                outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
-                cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
+        Path(outdir).mkdir(exist_ok=True, parents=True)
+        print(f'Plotting results to {outdir}...')
 
-            Path(outdir).mkdir(exist_ok=True, parents=True)
-            print(f'Plotting results to {outdir}...')
-
-            # ---- Plot results ----
-            mask = {'left': result['left'].mask, 'right': result['right'].mask}
-            t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
-        
-            title = f'{indep_name}~{predictor_name} (n={len(common_subjects)})'
-            if correction is not None:
-                plot_stats.plot_tval(t_value, outfile_fwe_corrected, p_threshold=cluster_threshold, df=result['left'].df, 
-                                        cluster_mask=cluster_mask, mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', 
-                                        clobber=clobber, **kwargs)
-                cluster_plot.correlation_plot(result, {'left': surface_data['left'][common_subjects], 'right': surface_data['right'][common_subjects]},
-                                              indep_name, common_subjects, outdir, cluster_summary=cluster_summary, alpha=alpha, clobber=clobber)
-                cluster_summary.to_csv(cluster_summary_file)
-                
-            plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, 
-                                    mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', clobber=clobber, **kwargs)
+        # ---- Plot results ----
+        mask = {'left': result['left'].mask, 'right': result['right'].mask}
+        t_value = {'left': result['left'].t[0], 'right': result['right'].t[0]}
+    
+        title = f'{dep_name}~{indep_name} (n={len(common_subjects)})'
+        if correction is not None:
+            plot_stats.plot_tval(t_value, outfile_fwe_corrected, p_threshold=cluster_threshold, df=result['left'].df, 
+                                    cluster_mask=cluster_mask, mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', 
+                                    clobber=clobber, **kwargs)
+            cluster_plot.correlation_plot(result, {'left': surface_data_dep['left'][common_subjects], 'right': surface_data_dep['right'][common_subjects]},
+                                          {'left': surface_data_indep['left'][common_subjects], 'right': surface_data_indep['right'][common_subjects]},
+                                          dep_name, indep_name, common_subjects, outdir, cluster_summary=cluster_summary, alpha=alpha, clobber=clobber)
+            cluster_summary.to_csv(cluster_summary_file)
+            
+        plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, 
+                                mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', clobber=clobber, **kwargs)
 
     return result, common_subjects, cluster_mask, cluster_summary
     
