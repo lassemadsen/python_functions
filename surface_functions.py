@@ -630,7 +630,7 @@ def correlation_other_surface(surface_data, surface_data_predictor, predictor_na
                                         cluster_mask=cluster_mask, mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', 
                                         clobber=clobber, **kwargs)
                 cluster_plot.correlation_plot(result, {'left': surface_data['left'][common_subjects], 'right': surface_data['right'][common_subjects]},
-                                              indep_name, common_subjects, outdir, alpha=alpha, clobber=clobber)
+                                              indep_name, common_subjects, outdir, cluster_summary=cluster_summary, alpha=alpha, clobber=clobber)
                 cluster_summary.to_csv(cluster_summary_file)
                 
             plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, 
