@@ -100,8 +100,8 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
     data_group2 : dict of DataFrame
         A dictionary containing the data for the second group of subjects, with 'left' and 'right' as keys.
     covars : pandas DataFrame, optional
-        Dataframe with covariates (one per row) and header as id (matching ids in data_group1 and data_group2).
-    correction : str or None, optional | 'rft'
+        Dataframe with covariates (subject_id as index and data as columns)
+    correction : str or None, optional | 'rft'
         Correction method for multiple comparisons. If None, no correction is performed (default: 'rft').
     cluster_threshold : float, optional
         Primary cluster defining threshold (default 0.001).
@@ -146,11 +146,11 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
         covar_term = None
 
         # Make sure all subjects have covars
-        group1_subjects = sorted(list(set(group1_subjects) & set(covars.columns)))
-        group2_subjects = sorted(list(set(group2_subjects) & set(covars.columns)))
+        group1_subjects = sorted(list(set(group1_subjects) & set(covars.index)))
+        group2_subjects = sorted(list(set(group2_subjects) & set(covars.index)))
 
-        for covar in covars.index: 
-            covar_term = covar_term + FixedEffect(pd.concat([covars.loc[covar][group1_subjects],covars.loc[covar][group2_subjects]], names=covar))
+        for covar in covars: 
+            covar_term = covar_term + FixedEffect(pd.concat([covars.loc[group1_subjects, covar],covars.loc[group2_subjects, covar]], names=covar))
 
     print(f'Group 1: N={len(group1_subjects)}, group 2: N={len(group2_subjects)}')
 
@@ -202,8 +202,8 @@ def unpaired_ttest(data_group1, data_group2, covars=None, correction='rft', clus
                 cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
 
             else:
-                outdir = f'{outdir}/Unpaired_ttest/{group_names[0].replace(" ", "_")}_vs_{group_names[1].replace(" ", "_")}/{param_name.replace(" ", "_")}+{"+".join(covars.index)}'
-                basename = f'{param_name.replace(" ", "_")}+{"+".join(covars.index)}_p{cluster_threshold}'
+                outdir = f'{outdir}/Unpaired_ttest/{group_names[0].replace(" ", "_")}_vs_{group_names[1].replace(" ", "_")}/{param_name.replace(" ", "_")}+{"+".join(covars.columns)}'
+                basename = f'{param_name.replace(" ", "_")}+{"+".join(covars.columns)}_p{cluster_threshold}'
                 outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
                 outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
                 cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
@@ -524,7 +524,7 @@ def correlation_pearson(param, indep_data):
     
     return result, common_subjects
 
-def correlation_other_surface(surface_data_dep, surface_data_indep, covariates=None, correction='rft', 
+def correlation_other_surface(surface_data_dep, surface_data_indep, covars=None, correction='rft', 
                               cluster_threshold=0.001, alpha=0.05, plot=False, outdir=None, 
                               dep_name=None, indep_name=None, clobber=False, **kwargs):
     """
@@ -536,8 +536,8 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covariates=N
         A dictionary containing the data for the first surface measurements with 'left' and 'right' as keys.
     surface_data_indep : dict of DataFrame
         A dictionary containing the data for the second surface measurements with 'left' and 'right' as keys.
-    covariates : pandas DataFrame, optional
-        Dataframe with covariates (one per row) and header as id (matching ids in surface_data and surface_data_predictor).
+    covars : pandas DataFrame, optional
+        Dataframe with covariates (subject_id as index and data as columns)
     correction : str or 'None', optional | 'rft'
         Correction method for multiple comparisons. If None, no correction is performed (default: 'rft').
     cluster_threshold : float, optional
@@ -588,13 +588,13 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covariates=N
                                   set(surface_data_indep['left'].columns) & set(surface_data_indep['right'].columns)))
                                   
     # Define covariates, if any
-    if covariates is not None:
+    if covars is not None:
         # Make sure all subjects have covars
-        common_subjects = sorted(list(set(common_subjects) & set(covariates.columns)))
+        common_subjects = sorted(list(set(common_subjects) & set(covars.index)))
 
         covar_term = None
-        for covar in covariates[common_subjects].index: 
-            covar_term = covar_term + FixedEffect(covariates[common_subjects].loc[covar, :], names=covar)
+        for covar in covars:
+            covar_term = covar_term + FixedEffect(covars.loc[common_subjects, covar], names=covar)
 
     for hemisphere in ['left', 'right']:
         data_dep = surface_data_dep[hemisphere][common_subjects].T
@@ -621,7 +621,7 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covariates=N
             model = term
             contrast = model.x0
 
-            if covariates is not None:
+            if covars is not None:
                 model = model + covar_term
 
             # --- Run model ---
@@ -630,21 +630,53 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covariates=N
 
             t[i] = slm.t[0][0]
         
-        # Run with mean data to compute multple comparison
-        term_slope = FixedEffect(surface_data_indep[hemisphere][common_subjects].mean().values)
-        model = term_slope
-        if covariates is not None:
-            model = model + covar_term
-
-        contrast = model.x0
-
-        # slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold, mask=mask)
-        slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
-        slm.fit(data_dep.values)
-
-        slm.t = np.array([t])
         if correction is not None:
-            slm.multiple_comparison_corrections(True)
+            # To run correction with two surfaces, we have to run  with mean data for one of them to compute multple comparison.
+            # However, when calculating random filed theory correction, it matters which surface is the dependent and indpendent variable. 
+            # This is because the correction estimates the number of resolution elements (ressels) based on residuals. An more noisy surface map will give different
+            # values compared to a more smooth. To make sure there is not difference in results depending of which surface is set to indep/dep variable respectivly, 
+            # the correction is run with both where ressels are calculated. Finally, the average ressels across the two runs is used to produce the final correction, which 
+            # is independent on which surface is first. 
+
+            # 1. Run with indep_data as fit()
+            model = FixedEffect(surface_data_dep[hemisphere][common_subjects].mean().values)
+            if covars is not None:
+                model = model + covar_term
+            contrast = model.x0
+            slm1 = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
+            slm1.fit(data_indep.values) 
+            slm1.t = np.array([t])
+            slm1.multiple_comparison_corrections(True) # Run with actual t-values
+
+            # 2. Run with dep_data as fit()
+            model = FixedEffect(surface_data_indep[hemisphere][common_subjects].mean().values)
+            if covars is not None:
+                model = model + covar_term
+            contrast = model.x0
+            slm2 = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
+            slm2.fit(data_dep.values) 
+            slm2.t = np.array([t])
+            slm2.multiple_comparison_corrections(True) # Run with actual t-values
+
+            # 3. Finally run where slm.resls is set to the average of the two (whether fit is run with indep or dep does not change cluster p-values when slm.resl are set before)
+            model = FixedEffect(surface_data_indep[hemisphere][common_subjects].mean().values)
+            if covars is not None:
+                model = model + covar_term
+            contrast = model.x0
+            slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
+            slm.fit(data_dep.values) 
+            slm.t = np.array([t])
+            slm.resl = (slm1.resl + slm2.resl) / 2
+            slm.multiple_comparison_corrections(True) # Run with actual t-values
+
+        else:
+            model = FixedEffect(surface_data_dep[hemisphere][common_subjects].mean().values)
+            if covars is not None:
+                model = model + covar_term
+            contrast = model.x0
+            slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
+            slm.t = np.array([t])
+
         slm.mask = mask
 
         result[hemisphere] = slm
@@ -656,15 +688,15 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covariates=N
         cluster_summary = get_cluster_summary(result, alpha)
     
     if plot:
-        if covariates is None:
+        if covars is None:
             outdir = f'{outdir}/Correlation/{dep_name}_vs_{indep_name}'
             basename = f'{dep_name}_vs_{indep_name}_p{cluster_threshold}'
             outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
             outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
             cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
         else:
-            outdir = f'{outdir}/Correlation/{dep_name}_vs_{indep_name}+{"+".join(covariates.index)}'
-            basename = f'{dep_name}_vs_{indep_name}+{"+".join(covariates.index)}_p{cluster_threshold}'
+            outdir = f'{outdir}/Correlation/{dep_name}_vs_{indep_name}+{"+".join(covars.columns)}'
+            basename = f'{dep_name}_vs_{indep_name}+{"+".join(covars.columns)}_p{cluster_threshold}'
             outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
             outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
             cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
@@ -679,15 +711,15 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covariates=N
         title = f'{dep_name}~{indep_name} (n={len(common_subjects)})'
         if correction is not None:
             plot_stats.plot_tval(t_value, outfile_fwe_corrected, p_threshold=cluster_threshold, df=result['left'].df, 
-                                    cluster_mask=cluster_mask, mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', 
-                                    clobber=clobber, **kwargs)
+                                 cluster_mask=cluster_mask, mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', 
+                                 clobber=clobber, **kwargs)
             cluster_plot.correlation_plot(result, {'left': surface_data_dep['left'][common_subjects], 'right': surface_data_dep['right'][common_subjects]},
                                           {'left': surface_data_indep['left'][common_subjects], 'right': surface_data_indep['right'][common_subjects]},
                                           dep_name, indep_name, outdir, cluster_summary=cluster_summary, alpha=alpha, clobber=clobber)
             cluster_summary.to_csv(cluster_summary_file)
             
         plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, 
-                                mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', clobber=clobber, **kwargs)
+                             mask=mask, t_lim=[-5, 5], title=title, cbar_loc='left', clobber=clobber, **kwargs)
 
     return result, common_subjects, cluster_mask, cluster_summary
     
