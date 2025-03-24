@@ -235,6 +235,9 @@ class LevenbergMarquardtReg: # frozen parameters
             upper = None
         else:
             lower, upper = [np.array(x) for x in zip(*bounds)]
+            
+            # lower, upper = np.array([(-1E+30 if b[0] is None else b[0], 1E+30 if b[1] is None else b[1])
+            #                          for b in bounds], dtype=np.float64).T  # Transpose to separate lower and upper bounds
             lower[lower == None] = -1E+30
             upper[upper == None] = +1E+30
 
