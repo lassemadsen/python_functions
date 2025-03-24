@@ -5,35 +5,44 @@ from scipy.signal import convolve
 class IntDcmTR:
     def __init__(self, aif):
         self.aif = aif
-        self.cbf = None
-        self.delay = None
-        self.alpha = None
-        self.beta = None
+        # self.cbf = None
+        # self.delay = None
+        # self.alpha = None
+        # self.beta = None
+        # self.rf = None
 
     def h(self, t, alpha, beta):
         return 1 / (beta**alpha * gamma(alpha)) * t**(alpha-1) * np.exp(-t/beta)
 
-    def fit(self, t, conc, theta):
+    def fit(self, t, theta):
+        # Check equal parameters
+        # if 
+        # self.cbf = theta[0]
+        # self.alpha = theta[1]
+        # self.delay = theta[2]
+        # self.beta = theta[3]
 
-        # Check equal parameters 
-        if self.cbf and self.delay and self.alpha and self.beta:
-            self.cbf = theta[0]
-            self.alpha = theta[1]
-            self.beta = theta[3]
+        # Fit delay
+        d = int(theta[2] % 1)
+        f = int(np.fix(theta[2]))
+        self.aif = np.concatenate([np.zeros(f), self.aif[:-f-d]])
+        rf = theta[0] * self.h(t, theta[1], theta[3]).ravel()
+        # TODO check for updates in parameters
+        # if delay != self.delay:
+        #     self.delay = delay
+        #     # Fit delay
+        #     d = int(self.delay % 1)
+        #     f = int(np.fix(self.delay))
+        #     self.aif = np.concatenate([np.zeros(f), self.aif[:-f-d]])
 
-        if theta[2] != self.delay:
-            self.delay = theta[2]
-            # Fit delay
-            d = self.delay % 1
-            f = int(self.delay)
-            aif = np.concatenate([np.zeros(f), M['pp'](M['time'] - d)]) # TODO fix
-            self.p_aif = aif
-        if theta[1] != self.alpha or theta[3] != self.beta:
-            rf = self.cbf * self.h(t, self.alpha, self.beta)
+        # if alpha != self.alpha or beta != self.beta:
+        #     self.alpha = alpha
+        #     self.beta = beta
+        #     self.rf = self.cbf * self.h(t, self.alpha, self.beta).ravel()
 
-        y = convolve(rf, conc)
+        y = convolve(rf, self.aif)
 
-        y = y[:len(conc)]
+        y = y[:len(self.aif)]
 
         return y
     
