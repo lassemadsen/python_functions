@@ -1,96 +1,110 @@
 import numpy as np
-from scipy.linalg import svd
-import scipy.stats as stats
-from levenberg_marquardt import LevenbergMarquardtReg
+from scipy.special import gamma
+from scipy.signal import convolve
 
 class IntDcmTR:
     def __init__(self, aif):
-        self.p_P = None
-        self.p_aif = None
-        self.p_rf = None
-        self.p_y = None
-        self.p_cs = None
-        self.p_hits = 0
-        self.p_calls = 0
-        self.U = U
-    
-    def reset(self):
-        self.p_hits = 0
-        self.p_calls = 0
-        self.p_P = None
-        return [], [], [], 0
+        self.aif = aif
+        self.cbf = None
+        self.delay = None
+        self.alpha = None
+        self.beta = None
 
-    def gamma_eval(self, x, alpha, beta):
-        return stats.gamma.cdf(x, alpha, scale=beta)
+    def h(self, t, alpha, beta):
+        return 1 / (beta**alpha * gamma(alpha)) * t**(alpha-1) * np.exp(-t/beta)
+
+    def fit(self, t, conc, theta):
+
+        # Check equal parameters 
+        if self.cbf and self.delay and self.alpha and self.beta:
+            self.cbf = theta[0]
+            self.alpha = theta[1]
+            self.beta = theta[3]
+
+        if theta[2] != self.delay:
+            self.delay = theta[2]
+            # Fit delay
+            d = self.delay % 1
+            f = int(self.delay)
+            aif = np.concatenate([np.zeros(f), M['pp'](M['time'] - d)]) # TODO fix
+            self.p_aif = aif
+        if theta[1] != self.alpha or theta[3] != self.beta:
+            rf = self.cbf * self.h(t, self.alpha, self.beta)
+
+        y = convolve(rf, conc)
+
+        y = y[:len(conc)]
+
+        return y
     
-    def int_dcmTR(self, P, M):
-        if P is None or M is None or U is None:
-            return self.reset()
+    # def int_dcmTR(self, P, M):
+    #     if P is None or M is None or U is None:
+    #         return self.reset()
         
-        self.p_calls += 1
-        calls = self.p_calls
+    #     self.p_calls += 1
+    #     calls = self.p_calls
         
-        if U['leakage_correct']:
-            k2 = P[4]
+    #     if U['leakage_correct']:
+    #         k2 = P[4]
         
-        P = np.exp(P)
-        amp, alpha, delay, beta = P[:4]
+    #     P = np.exp(P)
+    #     amp, alpha, delay, beta = P[:4]
         
-        delay = min(delay, 1e3)
+    #     delay = min(delay, 1e3)
         
-        eq_params = self.p_P is not None and np.array_equal(P, self.p_P)
-        self.p_P = P
+    #     eq_params = self.p_P is not None and np.array_equal(P, self.p_P)
+    #     self.p_P = P
         
-        if not eq_params:
-            if self.p_aif is not None and P[2] == self.p_P[2]:
-                aif = self.p_aif
-                self.p_hits += 1
-            else:
-                d = delay % 1
-                f = int(delay)
-                aif = np.concatenate([np.zeros(f), M['pp'](M['time'] - d)])
-                self.p_aif = aif
+    #     if not eq_params:
+    #         if self.p_aif is not None and P[2] == self.p_P[2]:
+    #             aif = self.p_aif
+    #             self.p_hits += 1
+    #         else:
+    #             d = delay % 1
+    #             f = int(delay)
+    #             aif = np.concatenate([np.zeros(f), M['pp'](M['time'] - d)])
+    #             self.p_aif = aif
             
-            if self.p_rf is not None and P[1] == self.p_P[1] and P[3] == self.p_P[3]:
-                rf = self.p_rf
-                self.p_hits += 1
-            else:
-                t = np.arange(0, max(M['time']) * U['dt'], U['dt'])
-                if U['shape'] == 'gamma':
-                    rf = amp * (1 - self.gamma_eval(t, alpha, beta))
-                else:
-                    rf = amp * (1 - stats.expon.cdf(t, scale=beta))
-                self.p_rf = rf
+    #         if self.p_rf is not None and P[1] == self.p_P[1] and P[3] == self.p_P[3]:
+    #             rf = self.p_rf
+    #             self.p_hits += 1
+    #         else:
+    #             t = np.arange(0, max(M['time']) * U['dt'], U['dt'])
+    #             if U['shape'] == 'gamma':
+    #                 rf = amp * (1 - self.gamma_eval(t, alpha, beta))
+    #             else:
+    #                 rf = amp * (1 - stats.expon.cdf(t, scale=beta))
+    #             self.p_rf = rf
             
-            y = np.convolve(aif, rf) * U['dt']
-            y = y[:max(M['s'])]
-            self.p_y = y / amp
-        else:
-            y = self.p_y * amp
-            self.p_hits += 3
+    #         y = np.convolve(aif, rf) * U['dt']
+    #         y = y[:max(M['s'])]
+    #         self.p_y = y / amp
+    #     else:
+    #         y = self.p_y * amp
+    #         self.p_hits += 3
         
-        if U['leakage_correct']:
-            if self.p_cs is not None and P[2] == self.p_P[2]:
-                cs = self.p_cs
-                self.p_hits += 1
-            else:
-                cs = np.zeros_like(aif)
-                idx = max(int(delay), 1)
-                cs[idx:] = np.cumsum(aif[idx:]) * U['dt']
-                self.p_cs = cs
+    #     if U['leakage_correct']:
+    #         if self.p_cs is not None and P[2] == self.p_P[2]:
+    #             cs = self.p_cs
+    #             self.p_hits += 1
+    #         else:
+    #             cs = np.zeros_like(aif)
+    #             idx = max(int(delay), 1)
+    #             cs[idx:] = np.cumsum(aif[idx:]) * U['dt']
+    #             self.p_cs = cs
             
-            leakage = k2 * cs[:max(M['s'])]
-            y_noleak = y[M['s']] if 'y_noleak' in locals() else []
-            y += leakage
-        else:
-            y_noleak = []
+    #         leakage = k2 * cs[:max(M['s'])]
+    #         y_noleak = y[M['s']] if 'y_noleak' in locals() else []
+    #         y += leakage
+    #     else:
+    #         y_noleak = []
         
-        y = y[M['s']]
-        rf = rf[M['s']] if 'rf' in locals() else []
+    #     y = y[M['s']]
+    #     rf = rf[M['s']] if 'rf' in locals() else []
         
-        hits = self.p_hits
+    #     hits = self.p_hits
         
-        return y, rf, y_noleak, hits, calls
+    #     return y, rf, y_noleak, hits, calls
 
 
 def mySvd(conc_data, aif, baseline_end, TimeBetweenVolumes, threshold=0.2):
