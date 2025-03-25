@@ -33,7 +33,7 @@ class IntDcmTR:
 
         if delay != self.delay:
             # Fit delay
-            self.delay = delay
+            self.delay = round(delay,5)
 
             aif = self.aif_upsampled(t_upsampled-self.delay).ravel() # np.concatenate([np.zeros(f).reshape(-1,1), self.aif(t-d)]).ravel()
         else:

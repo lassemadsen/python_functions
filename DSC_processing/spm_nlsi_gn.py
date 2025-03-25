@@ -1,4 +1,6 @@
 import numpy as np
+from scipy.sparse import find
+from numpy.linalg import det
 
 def spm_nlso_gn_no_graphic(model_fn, pE, pC, y, t):
     pass
@@ -18,7 +20,7 @@ def spm_nlso_gn_no_graphic(model_fn, pE, pC, y, t):
     ip = len(pE)
     np_ = ip
     B = np.eye(ip)
-    h = 1
+    h = np.array([1]).reshape(-1,1)
     ne = len(y)
     Q = np.eye(ne)
     dFdpp = np.eye(ip)
@@ -38,7 +40,7 @@ def spm_nlso_gn_no_graphic(model_fn, pE, pC, y, t):
         g = model_fn(t, pE)
         r = y - g
 
-        Jp = np.zeros((len(g), len(ip)))
+        Jp = np.zeros((len(g), ip))
 
         for i in range(ip):
             dV = dv*np.sqrt(Cp[i,i])
@@ -50,14 +52,15 @@ def spm_nlso_gn_no_graphic(model_fn, pE, pC, y, t):
 
         # ------------
         S = h[0]
-        iS = np.inv(S)
-        Cp = np.inv(J.T @ iS @ J+ ipC)
+        # iS = np.linalg.inv(S)
+        iS = 1/S
+        Cp = np.linalg.inv(J.T @ (iS * J)+ ipC)
 
-        A=np.trace((J.T @ J) @ Cp) + r.T @ r
+        A = np.trace((J.T @ J) @ Cp) + r.T @ r
 
         h[0] = A/ne
 
-        F = - r.T @ iS @ r/2 - (pE-Ep).T @ ipC @ (pE-Ep)/2 - ne @ np.log(8*np.atan(1))/2 + ne @ spm_logdet(iS)/2 + spm_logdet(ipC)/2 - spm_logdet(Cp)/2
+        F = - r.T @ (iS * r)/2 - (pE-Ep).T @ ipC @ (pE-Ep)/2 - ne * np.log(8*np.arctan(1))/2 + ne * spm_logdet(iS)/2 + spm_logdet(ipC)/2 - spm_logdet(Cp)/2
 
         # if F has increased, update gradients and curvatures for E-Step
         # -------------------------------------------------------------------
@@ -72,12 +75,12 @@ def spm_nlso_gn_no_graphic(model_fn, pE, pC, y, t):
             # E-Step: Conditional update of gradients and curvature
             # ---------------------------------------------------------------
 
-            dFdp  = J.T @ iS @ r + ipC @ (pE-Ep)
-            dFdpp = J.T @ iS @ J + ipC
+            dFdp  = J.T @ (iS * r) + ipC @ (pE-Ep)
+            dFdpp = J.T @ (iS * J) + ipC
 
             # decrease regularization
             # ---------------------------------------------------------------
-            lm = lm/2
+            lm = lm / 2
             # str_ = 'E-Step(-)'
 
         else:
@@ -116,6 +119,7 @@ def spm_nlso_gn_no_graphic(model_fn, pE, pC, y, t):
 
     return Ep, Cp, S, F
 
+
 def spm_logdet(C):
     """returns the log of the determinant of the positive definite matrix C
     FORMAT [H] = spm_logdet(C)
@@ -133,11 +137,17 @@ def spm_logdet(C):
 
     # invoke det if non-diagonal
     # ---------------------------------------------------------------------------
-    i,j = np.find(C)
+
+    # Get the nonzero indices of C
+    i, j, _ = find(C)
+
+    # Get the number of rows (or length equivalent in MATLAB)
     n = len(C)
-    if any(i != j):
-        a = np.exp(H/n)
-        H = H + np.log(np.linalg.det(C/a))
+
+    # Check if C is non-diagonal
+    if np.any(i != j):
+        a = np.exp(H / n)
+        H = H + np.log(det(C / a))
 
     # invoke svd is rank deficient
     #---------------------------------------------------------------------------
