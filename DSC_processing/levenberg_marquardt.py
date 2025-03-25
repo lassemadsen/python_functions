@@ -6,8 +6,6 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pylab as pl
 import matplotlib.pyplot as plt
-from scipy.special import gamma
-from scipy.signal import convolve
 
 def lm_func(t,p):
     """
@@ -29,52 +27,8 @@ def lm_func(t,p):
     
     return y_hat
 
-# def lm_func(t,p):
-#     """
 
-#     Define model function used for nonlinear least squares curve-fitting.
-
-#     Parameters
-#     ----------
-#     t     : independent variable values (assumed to be error-free) (m x 1)
-#     p     : parameter values , n = 4 in these examples             (n x 1)
-
-#     Returns
-#     -------
-#     y_hat : curve-fit fctn evaluated at points t and with parameters p (m x 1)
-
-#     """
-#     aif  = np.array([-1.95737917e-01,  4.20295289e-01,  1.12477941e-02, -4.23509568e-02,
-#         2.68595103e-02, -2.06351389e-01, -6.08458813e-02,  2.51045842e-01,
-#        -2.23089160e-01,  2.47876419e-01,  9.10870191e-02, -1.35780542e-01,
-#         5.31115677e-02, -8.48517716e-02,  1.19965843e-01, -4.32668999e-02,
-#         1.05246794e-01,  2.38620033e+00,  1.01401022e+01,  1.75128916e+01,
-#         1.78419538e+01,  1.52067175e+01,  1.11271270e+01,  7.21679354e+00,
-#         5.08174915e+00,  3.12416965e+00,  2.41667674e+00,  1.61325792e+00,
-#         1.02082953e+00,  1.12350147e+00,  8.84239247e-01,  1.76890049e+00,
-#         1.62854123e+00,  2.66100994e+00,  2.68850821e+00,  2.06864841e+00,
-#         2.51991898e+00,  1.76638078e+00,  2.40436359e+00,  1.72370703e+00,
-#         1.98452533e+00,  1.47350384e+00,  1.52818895e+00,  1.33403391e+00,
-#         1.79164832e+00,  1.84553956e+00,  1.58373790e+00,  2.47983700e+00,
-#         2.06514901e+00,  2.49735948e+00,  2.56567574e+00,  2.15582755e+00,
-#         2.19534817e+00,  1.81284202e+00,  2.11985958e+00,  2.41840137e+00])
-#     aif_interp = None
-#     cbf = p[0]
-#     alpha = p[1]
-#     beta = p[2]
-#     delay = p[3]
-#     rf = cbf * (1 / (beta**alpha * gamma(alpha)) * t**(alpha-1) * np.exp(-t/beta))
-
-#     aif = aif_interp(t-delay).ravel() # np.concatenate([np.zeros(f).reshape(-1,1), self.aif(t-d)]).ravel()
-
-#     y_hat = convolve(rf, aif)
-
-#     y_hat = y_hat[:len(t)]
-    
-#     return y_hat
-
-
-def lm_FD_J(model_fn, t,p,y,dp):
+def lm_FD_J(model_fn,t,p,y,dp):
     """
 
     Computes partial derivates (Jacobian) dy/dp via finite differences.
@@ -161,7 +115,7 @@ def lm_Broyden_J(p_old,y_old,J,p,y):
 
     return J
 
-def lm_matx(model_fn, t,p_old,y_old,dX2,J,p,y_dat,weight,dp):
+def lm_matx(model_fn,t,p_old,y_old,dX2,J,p,y_dat,weight,dp):
     """
     Evaluate the linearized fitting matrix, JtWJ, and vector JtWdy, and 
     calculate the Chi-squared error function, Chi_sq used by Levenberg-Marquardt 
@@ -224,7 +178,7 @@ def lm_matx(model_fn, t,p_old,y_old,dX2,J,p,y_dat,weight,dp):
     return JtWJ,JtWdy,Chi_sq,y_hat,J
 
 
-def lm(model_fn, p,t,y_dat):  
+def lm(model_fn,p,t,y_dat):  
     """
     
     Levenberg Marquardt curve-fitting: minimize sum of weighted squared residuals
@@ -288,7 +242,7 @@ def lm(model_fn, p,t,y_dat):
     # weights or a scalar weight value ( weight >= 0 )
     weight = 1/(y_dat.T@y_dat)
     # fractional increment of 'p' for numerical derivatives
-    dp = [-0.001]      
+    dp = [-0.001]       
     # lower bounds for parameter values
     p_min = -100*abs(p)  
     # upper bounds for parameter values       

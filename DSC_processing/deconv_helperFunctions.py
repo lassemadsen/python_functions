@@ -15,42 +15,9 @@ class IntDcmTR:
         self.beta = None
         self.rf = None
         self.dt = 1 / self.sampling_factor * self.TimeBetweenVolumes 
-    
-    def fit_new(self, t, theta):
-        # t: original
-        cbf = theta[0,0]
-        alpha = theta[1,0]
-        delay = theta[2,0]
-        beta = theta[3,0]
-
-        t_upsampled = np.arange(len(t)*self.sampling_factor) * self.dt #np.linspace(0, t[-1], len(t)*self.sampling_factor)
-
-        if alpha != self.alpha or beta != self.beta or cbf != self.cbf:
-            self.cbf = cbf
-            self.alpha = alpha
-            self.beta = beta
-            self.rf = self.cbf * (1 - gamma.cdf(t_upsampled, self.alpha, scale=self.beta))
-            # self.rf = self.cbf * self.h(t, self.alpha, self.beta)
-
-        if delay != self.delay:
-            # Fit delay
-            self.delay = delay
-
-            aif = self.aif(t-self.delay) # np.concatenate([np.zeros(f).reshape(-1,1), self.aif(t-d)]).ravel()
-
-            # d = int(delay % 1)
-            # if f != 0:
-        else:
-            aif = self.aif(t)
-
-        y = convolve(aif, self.rf)
-
-        y = y[0::self.sampling_factor][:len(t_upsampled)]
-
-        return y
 
     def fit(self, t, theta):
-        theta = np.exp(theta)
+        theta = np.exp(theta.ravel())
         cbf = theta[0]
         alpha = theta[1]
         delay = theta[2]
@@ -69,9 +36,6 @@ class IntDcmTR:
             self.delay = delay
 
             aif = self.aif_upsampled(t_upsampled-self.delay).ravel() # np.concatenate([np.zeros(f).reshape(-1,1), self.aif(t-d)]).ravel()
-
-            # d = int(delay % 1)
-            # if f != 0:
         else:
             aif = self.aif_upsampled(t_upsampled).ravel()
 
