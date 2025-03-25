@@ -6,7 +6,7 @@ from scipy.interpolate import interp1d
 class IntDcmTR:
     def __init__(self, aif, sampling_factor, TimeBetweenVolumes):
         self.aif = aif
-        self.aif_upsampled = interp1d(np.arange(len(self.aif)) * TimeBetweenVolumes, aif, kind='linear', fill_value=(0, None), bounds_error=False)
+        self.aif_upsampled = interp1d(np.arange(len(self.aif)) * TimeBetweenVolumes, aif, kind='cubic', fill_value=(0, None), bounds_error=False)
         self.sampling_factor = sampling_factor
         self.TimeBetweenVolumes = TimeBetweenVolumes
         self.cbf = None
@@ -50,7 +50,7 @@ class IntDcmTR:
         return y
 
     def fit(self, t, theta):
-        theta = theta
+        theta = np.exp(theta)
         cbf = theta[0]
         alpha = theta[1]
         delay = theta[2]
