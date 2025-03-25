@@ -1,244 +1,562 @@
-# -*- coding: utf-8 -*-
+# Code adapted from Gavin, H.P. (2020) The Levenberg-Marquardt method for 
+# nonlinear least squares curve-fitting problems.
+# https://people.duke.edu/~hpgavin/ce281/lm.pdf
 
-import collections
 import numpy as np
-import sys
+import seaborn as sns
+import matplotlib.pylab as pl
+import matplotlib.pyplot as plt
+from scipy.special import gamma
+from scipy.signal import convolve
 
-# y = f(X, theta) + eps
+def lm_func(t,p):
+    """
 
-class Prior:
+    Define model function used for nonlinear least squares curve-fitting.
+
+    Parameters
+    ----------
+    t     : independent variable values (assumed to be error-free) (m x 1)
+    p     : parameter values , n = 4 in these examples             (n x 1)
+
+    Returns
+    -------
+    y_hat : curve-fit fctn evaluated at points t and with parameters p (m x 1)
+
+    """
     
-    GAUSSIAN  = 'GAUSSIAN'
-    LOGNORMAL = 'LOGNORMAL'
+    y_hat = p[0,0]*np.exp(-t/p[1,0]) + p[2,0]*np.sin(t/p[3,0])
     
-    def __init__(self, density, mu = 0., bta = 1.):
-        
-        assert density in [Prior.GAUSSIAN, Prior.LOGNORMAL], \
-               "Invalid density {}".format(density)
-        
-        self.density = density
-        self.mu      = mu
-        self.bta     = bta
-        
-    def pdf(self, x):
-        
-        if self.density == Prior.GAUSSIAN:
-            return np.sqrt(self.bta / (2. * np.pi)) * np.exp(-0.5 * np.power(x - self.mu, 2.))
+    return y_hat
 
-        elif self.density == Prior.LOGNORMAL:
-            return np.sqrt(self.bta / (2. * np.pi)) / x * np.exp(-0.5 * np.power(np.log(x / self.mu), 2.))
+# def lm_func(t,p):
+#     """
 
+#     Define model function used for nonlinear least squares curve-fitting.
 
-LMStepOutput = collections.namedtuple('LMStepOutput',
-                                      ['yEst',
-                                       'err',
-                                       'WSS',
-                                       'sigma2',
-                                       'Objective'])
+#     Parameters
+#     ----------
+#     t     : independent variable values (assumed to be error-free) (m x 1)
+#     p     : parameter values , n = 4 in these examples             (n x 1)
 
-# f: Rk ---> RN ==> Jf: RN ---> Rk
+#     Returns
+#     -------
+#     y_hat : curve-fit fctn evaluated at points t and with parameters p (m x 1)
 
-class LevenbergMarquardtReg: # frozen parameters
+#     """
+#     aif  = np.array([-1.95737917e-01,  4.20295289e-01,  1.12477941e-02, -4.23509568e-02,
+#         2.68595103e-02, -2.06351389e-01, -6.08458813e-02,  2.51045842e-01,
+#        -2.23089160e-01,  2.47876419e-01,  9.10870191e-02, -1.35780542e-01,
+#         5.31115677e-02, -8.48517716e-02,  1.19965843e-01, -4.32668999e-02,
+#         1.05246794e-01,  2.38620033e+00,  1.01401022e+01,  1.75128916e+01,
+#         1.78419538e+01,  1.52067175e+01,  1.11271270e+01,  7.21679354e+00,
+#         5.08174915e+00,  3.12416965e+00,  2.41667674e+00,  1.61325792e+00,
+#         1.02082953e+00,  1.12350147e+00,  8.84239247e-01,  1.76890049e+00,
+#         1.62854123e+00,  2.66100994e+00,  2.68850821e+00,  2.06864841e+00,
+#         2.51991898e+00,  1.76638078e+00,  2.40436359e+00,  1.72370703e+00,
+#         1.98452533e+00,  1.47350384e+00,  1.52818895e+00,  1.33403391e+00,
+#         1.79164832e+00,  1.84553956e+00,  1.58373790e+00,  2.47983700e+00,
+#         2.06514901e+00,  2.49735948e+00,  2.56567574e+00,  2.15582755e+00,
+#         2.19534817e+00,  1.81284202e+00,  2.11985958e+00,  2.41840137e+00])
+#     aif_interp = None
+#     cbf = p[0]
+#     alpha = p[1]
+#     beta = p[2]
+#     delay = p[3]
+#     rf = cbf * (1 / (beta**alpha * gamma(alpha)) * t**(alpha-1) * np.exp(-t/beta))
+
+#     aif = aif_interp(t-delay).ravel() # np.concatenate([np.zeros(f).reshape(-1,1), self.aif(t-d)]).ravel()
+
+#     y_hat = convolve(rf, aif)
+
+#     y_hat = y_hat[:len(t)]
     
-    def __init__(self, model_fn, lbda = .1, step_init = 1., min_displacement = 1E-5,
-                 max_lbda = 1., step_mult_down = 0.8, step_mult_up = 1.2,
-                 lbda_mult_up = 2., lbda_mult_down = 1.5,
-                 check_every = 10, min_norm = 1E-5, max_iter = None):
-        
-        self.model_fn  = model_fn
-        self.lbda      = lbda
-        self.step_init = step_init
-        self.min_displacement = min_displacement
-        self.max_lbda  = max_lbda
-        self.step_mult_down = step_mult_down
-        self.step_mult_up   = step_mult_up 
-        self.lbda_mult_up   = lbda_mult_up
-        self.lbda_mult_down = lbda_mult_down
-        self.check_every = check_every
-        self.min_norm    = min_norm
-        self.max_iter    = max_iter
-        
-        self.current_status = None
-        
-    def fit(self, X, y, theta_init, bounds = None, priors = None, weights = None):
-        
-        assert X.shape[0] == len(y), "Illegal input dimensions"
-        
-        self.nObs, self.nParams = X.shape
-        
-        self.X, self.y = X, y
-        self.weights = np.ones(self.nObs) if weights is None else weights # not necessarily normalized
-        self.lower, self.upper = self.__set_bounds__(bounds)
-        self.priors = priors
-                
-        self.theta = theta_init.copy()
-        
-        self.total_displacement = 0.
-        self.step = self.step_init
-        
-        self.current_status = self.__get_optimization_status__(theta_init)
-        print("Initial WSS: {}".format(self.current_status.WSS))
-        
-        nIter = 0
-        while True:
-            descent_direction = self.__find_descent_direction__()
-            self.__move_to_new_theta__(descent_direction)
-            nIter += 1
-            if nIter % self.check_every == 0:
-                norm_theta = np.linalg.norm(self.theta)
-                if norm_theta == 0.:
-                    raise Exception("Theta was set to 0")
-                perc_displacement = self.total_displacement / norm_theta
-                print("Check after {nIter} iterations: % displacement = {perc_displacement}, norm_theta = {norm_theta}" \
-                      .format(nIter = nIter, perc_displacement = perc_displacement, norm_theta = norm_theta))
-                
-                if perc_displacement < self.min_norm:
-                    break
-                self.total_displacement = 0.
+#     return y_hat
 
-            if nIter == self.max_iter:
-                break
-            
-    def predict(self, X):
-        return self.model_fn(X, self.theta)
 
-    def __find_descent_direction__(self):
-        # descent direction solves a linear system Ax = b
-        
-        # Calculate descent direction from current theta
-        JTWT = self.Jf_theta(self.X, self.theta)
-        JTWT = np.dot(np.transpose(JTWT), np.sqrt(np.diag(self.weights)))
-        A = np.dot(JTWT, np.transpose(JTWT)) # JT*WT*W*J
-        b = np.dot(JTWT, self.current_status.err) # = - gradient of the objective function
-        if self.priors is not None:
-            A, b = self.__add_priors__(A, b)
-            
-        A += self.lbda * np.diag(np.diag(A)) # Marquardt
-            
-        success = False
-        while True:
-            if np.linalg.cond(A) < 1. / sys.float_info.epsilon:
-                descent_direction = np.linalg.solve(A, b)
-                success = True
-                break
-            if not self.__improve_conditioning__(A):
-                break
-            
-        if not success:
-            raise Exception("Could not calculate descent direction (singular matrix)")
-            
-        if np.dot(b, descent_direction) < -1E-10:
-            raise Exception("Direction found is not a descent direction")
-            
-        return descent_direction
+def lm_FD_J(model_fn, t,p,y,dp):
+    """
+
+    Computes partial derivates (Jacobian) dy/dp via finite differences.
+
+    Parameters
+    ----------
+    t  :     independent variables used as arg to lm_func (m x 1) 
+    p  :     current parameter values (n x 1)
+    y  :     func(t,p,c) initialised by user before each call to lm_FD_J (m x 1)
+    dp :     fractional increment of p for numerical derivatives
+                - dp(j)>0 central differences calculated
+                - dp(j)<0 one sided differences calculated
+                - dp(j)=0 sets corresponding partials to zero; i.e. holds p(j) fixed
+
+    Returns
+    -------
+    J :      Jacobian Matrix (n x m)
+
+    """
+
+    global func_calls
     
-    def __add_priors__(self, A, b):
+    # number of data points
+    m = len(y)
+    # number of parameters
+    n = len(p)
+
+    # initialize Jacobian to Zero
+    ps=p
+    J=np.zeros((m,n)) 
+    del_=np.zeros((n,1))
+    
+    # START --- loop over all parameters
+    for j in range(n):
+        # parameter perturbation
+        del_[j,0] = dp[j,0] * (1+abs(p[j,0]))
+        # perturb parameter p(j)
+        p[j,0]   = ps[j,0] + del_[j,0]
         
-        A /= self.current_status.sigma2
-        for j in range(len(self.priors)):
-            pr = self.priors[j]
-            if pr.density == Prior.GAUSSIAN:
-                A[j][j] += pr.bta
-                b[j]    -= pr.bta * (self.theta[j] - pr.mu)
-            if pr.density == Prior.LOGNORMAL:
-                log_theta_over_mu = np.log(self.theta[j] / pr.mu)
-                A[j][j] += pr.bta / np.power(self.theta[j], 2.) #- (1. + (log_theta_over_mu - 1.) * pr.precision) / np.power(self.theta[i], 2.)
-                b[j]    -= pr.bta * (log_theta_over_mu + 1. / pr.bta) / self.theta[j]
-
-        return A, b
-
-    def __move_to_new_theta__(self, descent_direction):
+        if del_[j,0] != 0:
+            y1 = model_fn(t,p)
+            func_calls = func_calls + 1
             
-        norm_desc_dir = np.linalg.norm(descent_direction)
-        descent_direction = descent_direction / norm_desc_dir
-        
-        self.status = self.__get_optimization_status__(self.theta)
-
-        flg_theta_updated  = False
-        while True:
-            theta_new = self.theta + self.step * descent_direction
-            if self.lower is not None:
-                theta_new = np.clip(theta_new, self.lower, self.upper)
-                
-            new_status = self.__get_optimization_status__(theta_new)
-            
-            if new_status.Objective < self.current_status.Objective * (1. - 1E-5): # there has been a significant % decrease
-                self.current_status = new_status
-                self.theta = theta_new
-                self.total_displacement += self.step * norm_desc_dir
-                flg_theta_updated = True
-                self.step *= self.step_mult_up
+            if dp[j,0] < 0: 
+                # backwards difference
+                J[:,j] = (y1-y)/del_[j,0]
             else:
-                if flg_theta_updated:
-                    break
-                self.step *= self.step_mult_down # try to decrease the step
-            
-            if self.step < self.min_displacement:
-                break
+                # central difference, additional func call
+                p[j,0] = ps[j,0] - del_[j]
+                J[:,j] = (y1-model_fn(t,p)) / (2 * del_[j,0])
+                func_calls = func_calls + 1
         
-        if not flg_theta_updated: # update lambda
-            self.lbda = min(self.max_lbda, self.lbda * self.lbda_mult_up)
-            
-                
-    def __get_optimization_status__(self, theta):
+        # restore p(j)
+        p[j,0]=ps[j,0]
         
-        yEst = self.model_fn(self.X, theta)
-        err  = self.y - yEst
-        WSS  = sum(self.weights * np.power(err, 2.))
-        sigma2 = WSS # FIXME rivedere, va divisa per nObs per ottenere varianza stimata
-        
-        Objective = WSS
-        if self.priors is not None:
-            Objective = 0.5 * self.nObs * np.log(sigma2) + 0.5 * WSS / sigma2
-            for j in range(len(self.priors)):
-                pr = self.priors[j]
-                if pr.density == Prior.GAUSSIAN:
-                    Objective += 0.5 * pr.bta * np.power(theta[j] - pr.mu, 2.)
-                elif pr.density == Prior.LOGNORMAL:
-                    Objective += np.log(theta[j]) + 0.5 * pr.bta * np.power(np.log(theta[j] / pr.mu), 2.)
-        
-        return LMStepOutput(yEst      = yEst,
-                            err       = err,
-                            WSS       = WSS,
-                            sigma2    = WSS,
-                            Objective = Objective)
-        
-    def Jf_theta(self, X, theta, h = 1E-5):
-        k = len(theta)
-        
-        Jf = []
-        for i in range(len(theta)):
-            Jf.append((self.model_fn(X, theta + h * np.eye(1, k, i)[0]) - self.model_fn(X, theta)) / h)
-            
-        return np.transpose(np.array(Jf))
+    return J
+    
 
-    def __improve_conditioning__(self, A):
-        
-        flg_matrix_changed = False
-        if max(abs(np.diag(A)) - 1.) > 1E-5:
-            # Are there any zero rows in A? If so, put a 1. on their diagonal for those rows only.
-            zero_rows = np.where(np.max(np.abs(A), axis = 1) < 1E-5)[0]
-            if len(zero_rows) > 0:
-                A.put([(A.shape[1] + 1) * i for i in zero_rows], 1.)
-            else:
-                # Last attempt: set all elements on the diagonal = 1.
-                np.fill_diagonal(A, 1.)
-                
-            flg_matrix_changed = True
+def lm_Broyden_J(p_old,y_old,J,p,y):
+    """
+    Carry out a rank-1 update to the Jacobian matrix using Broyden's equation.
 
-        return flg_matrix_changed
-                
-    def __set_bounds__(self, bounds):
+    Parameters
+    ----------
+    p_old :     previous set of parameters (n x 1)
+    y_old :     model evaluation at previous set of parameters, y_hat(t,p_old) (m x 1)
+    J     :     current version of the Jacobian matrix (m x n)
+    p     :     current set of parameters (n x 1)
+    y     :     model evaluation at current  set of parameters, y_hat(t,p) (m x 1)
+
+    Returns
+    -------
+    J     :     rank-1 update to Jacobian Matrix J(i,j)=dy(i)/dp(j) (m x n)
+
+    """
+    
+    h = p - p_old
+    
+    a = (np.array([y - y_old]).T - J@h)@h.T
+    b = h.T@h
+
+    # Broyden rank-1 update eq'n
+    J = J + a/b
+
+    return J
+
+def lm_matx(model_fn, t,p_old,y_old,dX2,J,p,y_dat,weight,dp):
+    """
+    Evaluate the linearized fitting matrix, JtWJ, and vector JtWdy, and 
+    calculate the Chi-squared error function, Chi_sq used by Levenberg-Marquardt 
+    algorithm (lm).
+    
+    Parameters
+    ----------
+    t      :     independent variables used as arg to lm_func (m x 1)
+    p_old  :     previous parameter values (n x 1)
+    y_old  :     previous model ... y_old = y_hat(t,p_old) (m x 1)
+    dX2    :     previous change in Chi-squared criteria (1 x 1)
+    J      :     Jacobian of model, y_hat, with respect to parameters, p (m x n)
+    p      :     current parameter values (n x 1)
+    y_dat  :     data to be fit by func(t,p,c) (m x 1)
+    weight :     the weighting vector for least squares fit inverse of 
+                 the squared standard measurement errors
+    dp     :     fractional increment of 'p' for numerical derivatives
+                  - dp(j)>0 central differences calculated
+                  - dp(j)<0 one sided differences calculated
+                  - dp(j)=0 sets corresponding partials to zero; i.e. holds p(j) fixed
+
+    Returns
+    -------
+    JtWJ   :     linearized Hessian matrix (inverse of covariance matrix) (n x n)
+    JtWdy  :     linearized fitting vector (n x m)
+    Chi_sq :     Chi-squared criteria: weighted sum of the squared residuals WSSR
+    y_hat  :     model evaluated with parameters 'p' (m x 1)
+    J :          Jacobian of model, y_hat, with respect to parameters, p (m x n)
+
+    """
+    
+    global iteration,func_calls
+    
+    # number of parameters
+    Npar   = len(p)
+
+    # evaluate model using parameters 'p'
+    y_hat = model_fn(t,p)
+    
+    func_calls = func_calls + 1
+
+    if not np.remainder(iteration,2*Npar) or dX2 > 0:
+        # finite difference
+        J = lm_FD_J(model_fn, t,p,y_hat,dp)
+    else:
+        # rank-1 update
+        J = lm_Broyden_J(p_old,y_old,J,p,y_hat)
+
+    # residual error between model and data
+    delta_y = np.array([y_dat - y_hat]).T
+    
+    # Chi-squared error criteria
+    Chi_sq = delta_y.T @ ( delta_y * weight )  
+
+    JtWJ  = J.T @ ( J * ( weight * np.ones((1,Npar)) ) )
+    
+    JtWdy = J.T @ ( weight * delta_y )
+    
+    
+    return JtWJ,JtWdy,Chi_sq,y_hat,J
+
+
+def lm(model_fn, p,t,y_dat):  
+    """
+    
+    Levenberg Marquardt curve-fitting: minimize sum of weighted squared residuals
+
+    Parameters
+    ----------
+    p : initial guess of parameter values (n x 1)
+    t : independent variables (used as arg to lm_func) (m x 1)
+    y_dat : data to be fit by func(t,p) (m x 1)
+
+    Returns
+    -------
+    p       : least-squares optimal estimate of the parameter values
+    redX2   : reduced Chi squared error criteria - should be close to 1
+    sigma_p : asymptotic standard error of the parameters
+    sigma_y : asymptotic standard error of the curve-fit
+    corr_p  : correlation matrix of the parameters
+    R_sq    : R-squared cofficient of multiple determination  
+    cvg_hst : convergence history (col 1: function calls, col 2: reduced chi-sq,
+              col 3 through n: parameter values). Row number corresponds to
+              iteration number.
+
+    """
+
+    global iteration, func_calls
+    
+    # iteration counter
+    iteration  = 0
+    # running count of function evaluations
+    func_calls = 0
+    
+    # define eps (not available in python)
+    eps = 2**(-52)
+
+    # number of parameters
+    Npar   = len(p)
+    # number of data points
+    Npnt   = len(y_dat)
+    # previous set of parameters
+    p_old  = np.zeros((Npar,1))
+    # previous model, y_old = y_hat(t,p_old)
+    y_old  = np.zeros((Npnt,1))
+    # a really big initial Chi-sq value
+    X2     = 1e-3/eps
+    # a really big initial Chi-sq value
+    X2_old = 1e-3/eps
+    # Jacobian matrix
+    J      = np.zeros((Npnt,Npar))
+    # statistical degrees of freedom
+    DoF    = np.array([[Npnt - Npar + 1]])
+    
+    
+    if len(t) != len(y_dat):
+        print('The length of t must equal the length of y_dat!')
+        X2 = 0 
+        corr_p = 0 
+        sigma_p = 0 
+        sigma_y = 0
+        R_sq = 0
+
+    # weights or a scalar weight value ( weight >= 0 )
+    weight = 1/(y_dat.T@y_dat)
+    # fractional increment of 'p' for numerical derivatives
+    dp = [-0.001]      
+    # lower bounds for parameter values
+    p_min = -100*abs(p)  
+    # upper bounds for parameter values       
+    p_max = 100*abs(p)
+
+    MaxIter       = 1000        # maximum number of iterations
+    epsilon_1     = 1e-3        # convergence tolerance for gradient
+    epsilon_2     = 1e-3        # convergence tolerance for parameters
+    epsilon_4     = 1e-1        # determines acceptance of a L-M step
+    lambda_0      = 1e-2        # initial value of damping paramter, lambda
+    lambda_UP_fac = 11          # factor for increasing lambda
+    lambda_DN_fac = 9           # factor for decreasing lambda
+    Update_Type   = 1           # 1: Levenberg-Marquardt lambda update, 2: Quadratic update, 3: Nielsen's lambda update equations 
+
+    if len(dp) == 1:
+        dp = dp*np.ones((Npar,1))
+
+    idx   = np.arange(len(dp))  # indices of the parameters to be fit
+    stop = 0                    # termination flag
+
+    # identical weights vector
+    if np.var(weight) == 0:         
+        weight = abs(weight)*np.ones((Npnt,1))        
+        print('Using uniform weights for error analysis')
+    else:
+        weight = abs(weight)
+
+    # initialize Jacobian with finite difference calculation
+    JtWJ,JtWdy,X2,y_hat,J = lm_matx(model_fn, t,p_old,y_old,1,J,p,y_dat,weight,dp)
+    if np.abs(JtWdy).max() < epsilon_1:
+        print('*** Your Initial Guess is Extremely Close to Optimal ***')
+    
+    lambda_0 = np.atleast_2d([lambda_0])
+
+    # Marquardt: init'l lambda
+    if Update_Type == 1:
+        lambda_  = lambda_0
+    # Quadratic and Nielsen
+    else:
+        lambda_  = lambda_0 * max(np.diag(JtWJ))
+        nu=2
+    
+    # previous value of X2 
+    X2_old = X2
+    # initialize convergence history
+    cvg_hst = np.ones((MaxIter,Npar+2))   
+    
+    # -------- Start Main Loop ----------- #
+    while not stop and iteration <= MaxIter:
         
-        if bounds is None:
-            lower = None
-            upper = None
+        iteration = iteration + 1
+ 
+        # incremental change in parameters
+        # Marquardt
+        if Update_Type == 1:
+            h = np.linalg.solve((JtWJ + lambda_*np.diag(np.diag(JtWJ)) ), JtWdy)  
+        # Quadratic and Nielsen
         else:
-            lower, upper = [np.array(x) for x in zip(*bounds)]
-            
-            # lower, upper = np.array([(-1E+30 if b[0] is None else b[0], 1E+30 if b[1] is None else b[1])
-            #                          for b in bounds], dtype=np.float64).T  # Transpose to separate lower and upper bounds
-            lower[lower == None] = -1E+30
-            upper[upper == None] = +1E+30
+            h = np.linalg.solve(( JtWJ + lambda_*np.eye(Npar) ), JtWdy)
 
-        return lower, upper
+        # update the [idx] elements
+        p_try = p + h[idx]
+        # apply constraints                             
+        p_try = np.minimum(np.maximum(p_min,p_try),p_max)       
+    
+        # residual error using p_try
+        delta_y = np.array([y_dat - model_fn(t,p_try)]).T
+        
+        # floating point error; break       
+        if not all(np.isfinite(delta_y)):                   
+          stop = 1
+          break     
+
+        func_calls = func_calls + 1
+        # Chi-squared error criteria
+        X2_try = delta_y.T @ ( delta_y * weight )
+        
+        # % Quadratic
+        if Update_Type == 2:                        
+          # One step of quadratic line update in the h direction for minimum X2
+          alpha =  np.divide(JtWdy.T @ h, ( (X2_try - X2)/2 + 2*JtWdy.T@h ))
+          h = alpha * h
+          
+          # % update only [idx] elements
+          p_try = p + h[idx]
+          # % apply constraints
+          p_try = np.minimum(np.maximum(p_min,p_try),p_max)         
+          
+          # % residual error using p_try
+          delta_y = y_dat - model_fn(t,p_try)     
+          func_calls = func_calls + 1
+          # % Chi-squared error criteria
+          X2_try = delta_y.T @ ( delta_y * weight )   
+  
+        rho = np.matmul( h.T @ (lambda_ * h + JtWdy),np.linalg.inv(X2 - X2_try))
+    
+        # it IS significantly better
+        if ( rho > epsilon_4 ):                         
+    
+            dX2 = X2 - X2_old
+            X2_old = X2
+            p_old = p
+            y_old = y_hat
+            # % accept p_try
+            p = p_try                        
+        
+            JtWJ,JtWdy,X2,y_hat,J = lm_matx(model_fn,t,p_old,y_old,dX2,J,p,y_dat,weight,dp)
+            
+            # % decrease lambda ==> Gauss-Newton method
+            # % Levenberg
+            if Update_Type == 1:
+                lambda_ = max(lambda_/lambda_DN_fac,1.e-7)
+            # % Quadratic
+            elif Update_Type == 2:
+                lambda_ = max( lambda_/(1 + alpha) , 1.e-7 )
+            # % Nielsen
+            else:
+                lambda_ = lambda_*max( 1/3, 1-(2*rho-1)**3 )
+                nu = 2
+            
+        # it IS NOT better
+        else:                                           
+            # % do not accept p_try
+            X2 = X2_old
+    
+            if not np.remainder(iteration,2*Npar):            
+                JtWJ,JtWdy,dX2,y_hat,J = lm_matx(model_fn,t,p_old,y_old,-1,J,p,y_dat,weight,dp)
+    
+            # % increase lambda  ==> gradient descent method
+            # % Levenberg
+            if Update_Type == 1:
+                lambda_ = min(lambda_*lambda_UP_fac,1.e7)
+            # % Quadratic
+            elif Update_Type == 2:
+                lambda_ = lambda_ + abs((X2_try - X2)/2/alpha)
+            # % Nielsen
+            else:
+                lambda_ = lambda_ * nu
+                nu = 2*nu
+
+        # update convergence history ... save _reduced_ Chi-square
+        cvg_hst[iteration-1,0] = func_calls
+        cvg_hst[iteration-1,1] = X2/DoF
+        
+        for i in range(Npar):
+            cvg_hst[iteration-1,i+2] = p.T[0][i]
+
+        if ( max(abs(JtWdy)) < epsilon_1  and  iteration > 2 ):
+          print('**** Convergence in r.h.s. ("JtWdy")  ****')
+          stop = 1
+    
+        if ( max(abs(h)/(abs(p)+1e-12)) < epsilon_2  and  iteration > 2 ): 
+          print('**** Convergence in Parameters ****')
+          stop = 1
+    
+        if ( iteration == MaxIter ):
+          print('!! Maximum Number of Iterations Reached Without Convergence !!')
+          stop = 1
+
+        # --- End of Main Loop --- #
+        # --- convergence achieved, find covariance and confidence intervals
+
+    #  ---- Error Analysis ----
+    #  recompute equal weights for paramter error analysis
+    if np.var(weight) == 0:   
+        weight = DoF/(delta_y.T@delta_y) * np.ones((Npnt,1))
+      
+    # % reduced Chi-square                            
+    redX2 = X2 / DoF
+
+    JtWJ,JtWdy,X2,y_hat,J = lm_matx(model_fn,t,p_old,y_old,-1,J,p,y_dat,weight,dp)
+
+    # standard error of parameters 
+    covar_p = np.linalg.inv(JtWJ)
+    sigma_p = np.sqrt(np.diag(covar_p)) 
+    error_p = sigma_p/p
+    
+    # standard error of the fit
+    sigma_y = np.zeros((Npnt,1))
+    for i in range(Npnt):
+        sigma_y[i,0] = J[i,:] @ covar_p @ J[i,:].T        
+
+    sigma_y = np.sqrt(sigma_y)
+
+    # parameter correlation matrix
+    corr_p = covar_p / [sigma_p@sigma_p.T]
+        
+    # coefficient of multiple determination
+    R_sq = np.correlate(y_dat, y_hat)
+    R_sq = 0        
+
+    # convergence history
+    cvg_hst = cvg_hst[:iteration,:]
+    
+    print('\nLM fitting results:')
+    for i in range(Npar):
+        print('----------------------------- ')
+        print('parameter      = p%i' %(i+1))
+        print('fitted value   = %0.4f' % p[i,0])
+        print('standard error = %0.2f %%' % error_p[i,0])
+    
+    return p,redX2,sigma_p,sigma_y,corr_p,R_sq,cvg_hst
+
+def make_lm_plots(model_fn,x,y,cvg_hst):
+    
+
+    # extract parameters data
+    p_hst  = cvg_hst[:,2:]
+    p_fit  = p_hst[-1,:]
+    y_fit = model_fn(x,np.array([p_fit]).T)
+    
+    # define fonts used for plotting
+    font_axes = {'family': 'serif',
+            'weight': 'normal',
+            'size': 12}
+    font_title = {'family': 'serif',
+                  'weight': 'normal',
+            'size': 14}       
+    
+    # define colors and markers used for plotting
+    n = len(p_fit)
+    colors = pl.cm.ocean(np.linspace(0,.75,n))
+    markers = ['o','s','D','v']    
+    
+    # create plot of raw data and fitted curve
+    fig1, ax1 = plt.subplots()
+    ax1.plot(x,y,'wo',markeredgecolor='black',label='Raw data')
+    ax1.plot(x,y_fit,'r--',label='Fitted curve',linewidth=2)
+    ax1.set_xlabel('t',fontdict=font_axes)
+    ax1.set_ylabel('y(t)',fontdict=font_axes)
+    ax1.set_title('Data fitting',fontdict=font_title)
+    ax1.legend()
+    
+    # create plot showing convergence of parameters
+    fig2, ax2 = plt.subplots()
+    for i in range(n):
+        ax2.plot(cvg_hst[:,0],p_hst[:,i]/p_hst[0,i],color=colors[i],marker=markers[i],
+                 linestyle='-',markeredgecolor='black',label='p'+'${_%i}$'%(i+1))
+    ax2.set_xlabel('Function calls',fontdict=font_axes)
+    ax2.set_ylabel('Values (norm.)',fontdict=font_axes)
+    ax2.set_title('Convergence of parameters',fontdict=font_title) 
+    ax2.legend()
+    
+    # create plot showing histogram of residuals
+    fig3, ax3 = plt.subplots()
+    sns.histplot(ax=ax3,data=y_fit-y,color='deepskyblue')
+    ax3.set_xlabel('Residual error',fontdict=font_axes)
+    ax3.set_ylabel('Frequency',fontdict=font_axes)
+    ax3.set_title('Histogram of residuals',fontdict=font_title)
+    
+    # create plot showing objective function surface plot
+    fig4, ax4 = plt.subplots(subplot_kw={"projection": "3d"})
+    # define range of values for gridded parameter search
+    p2 = np.arange(0.1*p_fit[1], 2.5*p_fit[1], 0.1)
+    p4 = np.arange(0.1*p_fit[3], 2.5*p_fit[3], 0.1)
+    X2 = np.zeros((len(p4),len(p2)))
+    # gridded parameter search
+    for i in range(len(p2)):
+        for j in range(len(p4)):
+            pt = np.array([[p_hst[-1,0],p2[i],p_hst[-1,2],p4[j]]]).T
+            delta_y = y - model_fn(x,pt)
+            X2[j,i] = np.log((delta_y.T @ delta_y)/(len(x)-len(p_fit)))    
+    p2_grid, p4_grid = np.meshgrid(p2, p4)
+    # make surface plot
+    ax4.plot_surface(p2_grid, p4_grid, X2, cmap='coolwarm', antialiased=True)
+    ax4.set_xlabel('P$_2$',fontdict=font_axes)
+    ax4.set_ylabel('P$_4$',fontdict=font_axes)
+    ax4.set_zlabel('log$_{10}$($\chi$$^2$)',fontdict=font_axes,rotation=90)
+    ax4.set_title('Objective Function',fontdict=font_title)
+    ax4.zaxis.set_rotate_label(False)
+    ax4.azim = 225

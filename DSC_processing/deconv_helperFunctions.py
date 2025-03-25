@@ -1,48 +1,84 @@
 import numpy as np
-from scipy.special import gamma
+from scipy.stats import gamma
 from scipy.signal import convolve
+from scipy.interpolate import interp1d
 
 class IntDcmTR:
-    def __init__(self, aif):
+    def __init__(self, aif, sampling_factor, TimeBetweenVolumes):
         self.aif = aif
-        # self.cbf = None
-        # self.delay = None
-        # self.alpha = None
-        # self.beta = None
-        # self.rf = None
+        self.aif_upsampled = interp1d(np.arange(len(self.aif)) * TimeBetweenVolumes, aif, kind='linear', fill_value=(0, None), bounds_error=False)
+        self.sampling_factor = sampling_factor
+        self.TimeBetweenVolumes = TimeBetweenVolumes
+        self.cbf = None
+        self.delay = None
+        self.alpha = None
+        self.beta = None
+        self.rf = None
+        self.dt = 1 / self.sampling_factor * self.TimeBetweenVolumes 
+    
+    def fit_new(self, t, theta):
+        # t: original
+        cbf = theta[0,0]
+        alpha = theta[1,0]
+        delay = theta[2,0]
+        beta = theta[3,0]
 
-    def h(self, t, alpha, beta):
-        return 1 / (beta**alpha * gamma(alpha)) * t**(alpha-1) * np.exp(-t/beta)
+        t_upsampled = np.arange(len(t)*self.sampling_factor) * self.dt #np.linspace(0, t[-1], len(t)*self.sampling_factor)
+
+        if alpha != self.alpha or beta != self.beta or cbf != self.cbf:
+            self.cbf = cbf
+            self.alpha = alpha
+            self.beta = beta
+            self.rf = self.cbf * (1 - gamma.cdf(t_upsampled, self.alpha, scale=self.beta))
+            # self.rf = self.cbf * self.h(t, self.alpha, self.beta)
+
+        if delay != self.delay:
+            # Fit delay
+            self.delay = delay
+
+            aif = self.aif(t-self.delay) # np.concatenate([np.zeros(f).reshape(-1,1), self.aif(t-d)]).ravel()
+
+            # d = int(delay % 1)
+            # if f != 0:
+        else:
+            aif = self.aif(t)
+
+        y = convolve(aif, self.rf)
+
+        y = y[0::self.sampling_factor][:len(t_upsampled)]
+
+        return y
 
     def fit(self, t, theta):
-        # Check equal parameters
-        # if 
-        # self.cbf = theta[0]
-        # self.alpha = theta[1]
-        # self.delay = theta[2]
-        # self.beta = theta[3]
+        theta = theta
+        cbf = theta[0]
+        alpha = theta[1]
+        delay = theta[2]
+        beta = theta[3]
 
-        # Fit delay
-        d = int(theta[2] % 1)
-        f = int(np.fix(theta[2]))
-        self.aif = np.concatenate([np.zeros(f), self.aif[:-f-d]])
-        rf = theta[0] * self.h(t, theta[1], theta[3]).ravel()
-        # TODO check for updates in parameters
-        # if delay != self.delay:
-        #     self.delay = delay
-        #     # Fit delay
-        #     d = int(self.delay % 1)
-        #     f = int(np.fix(self.delay))
-        #     self.aif = np.concatenate([np.zeros(f), self.aif[:-f-d]])
+        t_upsampled = np.arange(len(t)*self.sampling_factor) * self.dt #np.linspace(0, t[-1], len(t)*self.sampling_factor)
 
-        # if alpha != self.alpha or beta != self.beta:
-        #     self.alpha = alpha
-        #     self.beta = beta
-        #     self.rf = self.cbf * self.h(t, self.alpha, self.beta).ravel()
+        if alpha != self.alpha or beta != self.beta or cbf != self.cbf:
+            self.cbf = cbf
+            self.alpha = alpha
+            self.beta = beta
+            self.rf = self.cbf * (1 - gamma.cdf(t_upsampled, self.alpha, scale=self.beta)).ravel()
 
-        y = convolve(rf, self.aif)
+        if delay != self.delay:
+            # Fit delay
+            self.delay = delay
 
-        y = y[:len(self.aif)]
+            aif = self.aif_upsampled(t_upsampled-self.delay).ravel() # np.concatenate([np.zeros(f).reshape(-1,1), self.aif(t-d)]).ravel()
+
+            # d = int(delay % 1)
+            # if f != 0:
+        else:
+            aif = self.aif_upsampled(t_upsampled).ravel()
+
+        y = convolve(self.rf, aif)*self.dt # why multiply by dt? 
+
+        # Subsample
+        y = y[0::self.sampling_factor][:len(t)]
 
         return y
     
