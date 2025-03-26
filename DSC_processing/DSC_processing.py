@@ -4,31 +4,36 @@ import matplotlib.pyplot as plt
 import ants
 import skimage.util
 from pathlib import Path
+from deconv_helperFunctions import mySvd, IntDcmTR, spm_nlso_gn_no_graphic
 
 class DSC_process:
 
-    def __init__(self, sub_id: str, tp: str, img_file: str, qc_dir: str):
+    def __init__(self, sub_id: str, tp: str, img_file: str, outdir:str, qc_dir: str):
         self.sub_id = sub_id
         self.tp = tp
         self.img_file = img_file
         self.qc_dir = qc_dir
-        Path(qc_dir).mkdir(exist_ok=True, parents=True)
+        self.outdir = outdir
         self.img = nib.load(img_file)
         self.img_hdr = self.img.header
         self.img_data = self.img.get_fdata()
         self.img_data_mean = np.mean(self.img_data,3)
         self.repetition_time = self.img_hdr.get_zooms()[-1] # TR in seconds
         self.echo_time = float(str(self.img_hdr['descrip']).split(';')[0].split('TE=')[-1]) * 1e-3 # TE in seconds
-        self.baseline_start = 0 # Can this be determined in a good way? NOT USED FOR NOW
+        self.baseline_start = 0 # Can this be determined in a good way?
 
         # Parameters defined in function calls
         self.baseline_end = None
         self.conc_data = None
         self.noise_threshold = None
+        self.aif = None
 
         # Mask image by default 
         #self.slice_time_correction()
         self.mask_image()
+
+        Path(self.qc_dir).mkdir(exist_ok=True, parents=True)
+        Path(self.outdir).mkdir(exist_ok=True, parents=True)
     
 
     def mask_image(self, threshold: float = None):
@@ -203,7 +208,6 @@ class DSC_process:
 
         self._qc_concentration()
 
-
     def aif_selection(self, aif_search_mask: str, gm_mask: str, n_aif: int = 10):
         aif_search_mask = nib.load(aif_search_mask)
         gm_mask = nib.load(gm_mask)
@@ -213,15 +217,140 @@ class DSC_process:
         from aif_selection import aif_selection
         self.aif_select = aif_selection(self, aif_search_mask.get_fdata(), gm_mask.get_fdata(), n_aif)
         self.aif_select.select_aif()
+        self.aif = self.aif_select.final_aif
+
         self._qc_aif_selection()
 
-    def calc_perfusion(self):
+    def calc_perfusion(self, sampling_factor:int = 8):
         pass
         # Smoothing mask
         # Calc TTP 
-        
+        mask = ~np.all(self.conc_data == 0, axis=-1)
+        aif_area = np.trapz(self.aif) * self.repetition_time # In MATLAB, the aif_area is read from the AIF info file. This is a bit different (not sure why) and may cause tiny differences in the results compared to MATLAB.
+        TimeBetweenVolumes = 1.56 #self.repetition_time
 
-    
+        # Initialize parameter images:
+        alpha_img = np.zeros_like(self.img_data_mean)
+        beta_img = np.zeros_like(self.img_data_mean)
+        delay_img = np.zeros_like(self.img_data_mean)
+        cbf_img = np.zeros_like(self.img_data_mean)
+        cbv_img = np.zeros_like(self.img_data_mean)
+        mtt_img = np.zeros_like(self.img_data_mean)
+        cth_img = np.zeros_like(self.img_data_mean)
+        rth_img = np.zeros_like(self.img_data_mean)
+
+        # idx = np.unravel_index(911, self.conc_data.shape, order='F')
+        # conc_voxel = self.conc_data[idx[0],idx[1],idx[2],:] # First voxel in mask slice 0 matlab
+
+        t = np.arange(self.conc_data.shape[3]) * TimeBetweenVolumes # OBS: Should probably be repetition time, however this is different from TimeBetweenVolumes in MATLAB 1.56 vs. 1.563
+
+        for z in range(self.conc_data.shape[2]):
+            # Slice wise initial guess:
+            # Compute SVD only where mask is True and store results
+            p_slice = np.zeros(self.conc_data.shape[:2], dtype=object)
+            for y in range(self.conc_data.shape[1]):
+                for x in range(self.conc_data.shape[0]):
+                    if mask[x, y, z]:
+                        svd_cbf, svd_delay, _, _ = mySvd(self.conc_data[x, y, z, :], self.aif, self.baseline_end, TimeBetweenVolumes)
+                        cbvbyC = np.trapz(np.clip(self.conc_data[x, y, z, :], a_min=0, a_max=None), dx=TimeBetweenVolumes)/aif_area 
+                        svd_mtt = cbvbyC/svd_cbf
+
+                        # Adjust initial paramters if they are beyond the limits
+                        if svd_delay == 0: # Will cause problems when log transforming paramters for optimization
+                            svd_delay = TimeBetweenVolumes/sampling_factor
+                        if svd_mtt >= 0:
+                            svd_mtt = 1
+                        # TODO Set constrains on CBV
+
+                        # Setup initial parameters
+                        p_slice[x,y] = np.log(np.array([svd_cbf, 1, svd_delay, svd_mtt]))
+
+            if z != 0:
+                continue
+            for y in range(self.conc_data.shape[1]):
+                for x in range(self.conc_data.shape[0]):
+
+                    voxel_data = self.conc_data[x,y,z,:]
+
+                    if np.all(voxel_data == 0):
+                        continue #TODO use mask
+
+                    cbv, cbf, alpha, beta, delay, mtt, cth, rth = self._calc_perfusion_voxel(voxel_data, t, p_slice[x,y], sampling_factor, TimeBetweenVolumes)
+
+                    alpha_img[x,y,z] = alpha
+                    beta_img[x,y,z] = beta
+                    delay_img[x,y,z] = delay
+                    cbf_img[x,y,z] = cbf
+                    cbv_img[x,y,z] = cbv
+                    mtt_img[x,y,z] = mtt
+                    cth_img[x,y,z] = cth
+                    rth_img[x,y,z] = rth
+
+        # Save parametric images
+        self._save_img(alpha_img, 'ALPHA')
+        self._save_img(beta_img, 'BETA')
+        self._save_img(delay_img, 'DELAY')
+        self._save_img(cbf_img, 'CBF')
+        self._save_img(cbv_img, 'CBV')
+        self._save_img(mtt_img, 'MTT')
+        self._save_img(cth_img, 'CTH')
+        self._save_img(rth_img, 'RTH')
+
+    def _calc_perfusion_voxel(self, y, t, p, sampling_factor, TimeBetweenVolumes):
+        # Only use bolus passage in the remaining optimization
+        y = y[self.baseline_end:]
+        t_bolus = t[self.baseline_end:] - t[self.baseline_end] # Time vector from baseline end
+
+        # Initialize class for fitting the parametric function 
+        int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes) # Could this be move out? 
+
+        # Setup priors
+        pC = np.diag([.1, 1, 10, .1]) 
+
+        # Run optimization algorithm 
+        n_iterations = 2
+        rmse = {}
+        estimated_parameters = {}
+        fitted_values = {}
+        selected_iteration = None
+
+        for iteration in range(n_iterations):
+            Ep, Cp, S, F = spm_nlso_gn_no_graphic(int_dcmTR.fit, p, pC, y, t_bolus)
+            fitted_values[iteration] = int_dcmTR.fit(t_bolus, Ep)
+
+            sumsq = np.sum(np.power(y-fitted_values[iteration],2))
+            rmse[iteration] = np.sqrt(sumsq)/np.sum(np.abs(y))
+
+            if iteration == 0:
+                # Update initial guessing paramters and see if this improves the fitting.
+                p[0] = Ep[0]
+                p[1] = 0
+                p[2] = Ep[2]
+                p[3] = Ep[1] + Ep[3]
+                selected_iteration = iteration
+            else:
+                if rmse[iteration] > 0.01 and not (rmse[iteration] > rmse[iteration - 1]) and (np.abs(rmse[iteration] - rmse[iteration -1]) / rmse[iteration -1]) > 0.10:
+                    selected_iteration = iteration
+                elif (np.abs(rmse[iteration] - rmse[iteration -1]) / rmse[iteration -1] <= 0.10) or rmse[iteration] > rmse[iteration - 1]:
+                    # No major improvement
+                    selected_iteration = iteration - 1
+
+            estimated_parameters[iteration] = Ep
+
+        # Calculate derived parameters
+        cbv = np.trapz(fitted_values[selected_iteration])
+        cbf = np.exp(estimated_parameters[selected_iteration][0]) # Should be multiplied by conc_area to normalize
+        alpha = np.exp(estimated_parameters[selected_iteration][1])
+        beta = np.exp(estimated_parameters[selected_iteration][3])
+        delay = np.exp(estimated_parameters[selected_iteration][2])
+        mtt = alpha * beta
+        cth = np.sqrt(alpha) * beta #(alpha**beta) * beta
+        rth = cth/mtt
+        # TODO limits on MTT and CTH?
+
+        return cbv, cbf, alpha, beta, delay, mtt, cth, rth
+
+
     # SET methods
     def set_baseline_end(self, baseline_end: int):
         self.baseline_end = baseline_end
@@ -285,10 +414,10 @@ class DSC_process:
 
     def _qc_aif_selection(self):
         # Check that aif_selection has been run
-        if hasattr(self, 'aif_select'):
-            self.aif_select.qc_aif(f'{self.qc_dir}/{self.sub_id}_{self.tp}_aif_selection.jpg')
-        else:
+        if self.aif is None:
             print('AIF selection has not been performed.')
+        else:
+            self.aif_select.qc_aif(f'{self.qc_dir}/{self.sub_id}_{self.tp}_aif_selection.jpg')
 
     def _qc_slice_time_correction(self, original, slice_time_corrected):
         # QC: Compute mean along first two axes and find min position
@@ -335,30 +464,16 @@ class DSC_process:
         plt.close()
 
 
-    # Save functions
-    def save_img(self, outdir):
+    # Save function
+    def _save_img(self, data, name):
         #TODO Maybe track progression of analysis
+        #TODO should header be different? 
 
+        outdir = f'{self.outdir}/{name}/NATPACE'
         Path(outdir).mkdir(exist_ok=True, parents=True)
 
-        img_to_save = nib.Nifti1Image(self.img_data, self.img.affine, self.img_hdr)
-        nib.save(img_to_save, outdir + "/0001.nii")
-
-    def save_mean_img(self, outdir):
-        #TODO Maybe track progression of analysis
-
-        Path(outdir).mkdir(exist_ok=True, parents=True)
-
-        img_to_save = nib.Nifti1Image(self.img_data_mean, self.img.affine, self.img_hdr)
-        nib.save(img_to_save, outdir + "/0001.nii")
-
-    def save_conc(self, outdir):
-        #TODO Maybe track progression of analysis
-
-        Path(outdir).mkdir(exist_ok=True, parents=True)
-
-        img_to_save = nib.Nifti1Image(self.conc_data, self.img.affine, self.img_hdr)
-        nib.save(img_to_save, outdir + "/0001.nii")
+        img_to_save = nib.Nifti1Image(data, self.img.affine, self.img_hdr)
+        nib.save(img_to_save, outdir + '/0001.nii')
 
     def _get_acqorder(self, dcm_file):
         import pydicom
@@ -377,98 +492,3 @@ class DSC_process:
             acqorder[np.array(acqtime) == time] = uniq_acqorder[i]
         
         return acqorder
-
-# The follwing funciton is directly "translated" from the MATLAB file on slice time correction and ensures the same result
-# def slice_time_correction_orig(self, dcm_file):
-#     """
-#     Perform slice time correction. Translated from matlab
-#     """
-
-#     slice_time_corrected = np.zeros_like(self.img_data)
-
-#     # Get dimensions 
-#     X, Y, Z, T = self.img_data.shape
-#     # Z: n_slices
-#     # T: n_frames
-
-#     TimeBetweenVolumes = 1.56
-#     nframes = T
-#     nslices = Z
-#     d = self.img_data[:,:,0,0]
-#     timing = np.zeros(2)
-#     sliceorder = self._get_acqorder(dcm_file)
-
-#     nslices_multiband = len(np.unique(sliceorder))
-#     TA = TimeBetweenVolumes - TimeBetweenVolumes/nslices_multiband #repetition time not same a timebetweenvolumes? 
-#     timing[1] = TimeBetweenVolumes - TA
-#     timing[0] = TA / (nslices_multiband -1)
-
-
-#     factor = timing[0] / TimeBetweenVolumes
-#     dim = np.shape(d)
-
-#     # Correct to middle of TimeBetweenVolumes
-#     rslice = np.floor(nslices_multiband / 2).astype(int)
-#     nimgo = nframes
-#     nimg = 2 ** (np.floor(np.log2(nimgo)) + 1).astype(int)
-
-#     # Set up large matrix for holding image info (time by voxels)
-#     slices = np.zeros((dim[0], dim[1], nimgo))
-#     stack = np.zeros((nimg, dim[0]))
-#     minpos = np.zeros(nslices, dtype=int)
-#     minpostps = np.zeros(nslices, dtype=int)
-
-#     for multibandii in range(nslices // nslices_multiband):
-#         for sliceii in range(nslices_multiband):
-            
-#             # Set up time acquired within slice order
-#             shiftamount  = (np.where(sliceorder[:nslices_multiband] == sliceii)[0][0] + 1 - rslice) * factor
-            
-#             currentslice = sliceii + multibandii * nslices_multiband
-
-#             # Read in slice data
-#             for framii in range(nimgo):
-#                 slices[:, :, framii] = np.transpose(np.flip(self.img_data[:,:,currentslice, framii], axis=(0, 1)), (1,0))
-
-#             # QC: Compute mean along first two axes and find min position
-#             av = np.mean(self.img_data[:,:,currentslice,:], (0,1))
-#             minpos[currentslice] = np.argmin(av)
-
-#             # Set up shifting variables
-#             length = stack.shape[0]
-#             phi = np.zeros(length)
-
-#             # Check if signal length is odd or even
-#             OffSet = 0
-#             if length % 2 != 0:
-#                 OffSet = 1
-
-#             # Compute phase shifts
-#             for f in range(1,int(nimg/2)+1):
-#                 phi[f] = -1*shiftamount*2*np.pi/(nimg/f)
-
-#             # Mirror phi about the center
-#             phi[int(nimg/2-OffSet)+1:] = - np.flip(phi[1:int(nimg/2+OffSet)])
-
-#             # Compute complex exponential shifter
-#             shifter = (np.cos(phi) + 1j * np.sin(phi)).T
-#             shifter = np.tile(shifter[:, np.newaxis], (1, stack.shape[1]))  # Replicate columns
-
-#             # Loop over columns
-#             for i in range(dim[1]):
-#                 # Extract columns from slices
-#                 stack[:nimgo, :] = np.reshape(slices[:, i, :], (dim[0], nimgo)).T
-
-#                 # Fill in continuous function to avoid edge effects
-#                 for g in range(stack.shape[1]):
-#                     stack[nimgo:, g] = np.linspace(stack[nimgo - 1, g], stack[0, g], nimg - nimgo)
-
-#                 # Shift the columns using FFT 
-#                 stack = np.real(np.fft.ifft(np.fft.fft(stack, axis=0) * shifter, axis=0))
-
-#                 # Re-insert shifted columns
-#                 slices[:, i, :] = stack[:nimgo, :].T
-
-#             slice_time_corrected[:,:,currentslice, :] = np.transpose(np.flip(slices, axis=(0, 1)), (1,0,2))
-
-#     self.img_data = slice_time_corrected
