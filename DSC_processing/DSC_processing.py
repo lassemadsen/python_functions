@@ -5,7 +5,7 @@ import ants
 import skimage.util
 from pathlib import Path
 from deconv_helperFunctions import mySvd, IntDcmTR, spm_nlso_gn_no_graphic
-from scipy.ndimage import convolve
+from scipy.ndimage import convolve, gaussian_filter
 
 class DSC_process:
 
@@ -28,6 +28,7 @@ class DSC_process:
         self.conc_data = None
         self.noise_threshold = None
         self.aif = None
+        self.mask = None # TODO Create mask 
 
         # Mask image by default 
         #self.slice_time_correction()
@@ -49,7 +50,8 @@ class DSC_process:
             threshold = pct[threshold_index]
         self.noise_threshold = threshold
 
-        self.img_data[self.img_data < threshold] = np.nan
+        self.mask = self.img_data > threshold
+        self.img_data[self.img_data <= threshold] = np.nan
         self.img_data[np.any(np.isnan(self.img_data),axis=3)] = np.nan
 
     def baseline_detection(self):
@@ -224,10 +226,10 @@ class DSC_process:
 
     def calc_perfusion(self, smooth_mask:str = None, sampling_factor:int = 8):
         # Smoothing mask
+        self.mask = ~np.all(self.conc_data == 0, axis=-1) # TODO Only for debugging
         self._smooth_data(smooth_mask)
 
         # Calc TTP 
-        mask = ~np.all(self.conc_data == 0, axis=-1)
         aif_area = np.trapz(self.aif) * self.repetition_time # In MATLAB, the aif_area is read from the AIF info file. This is a bit different (not sure why) and may cause tiny differences in the results compared to MATLAB.
         TimeBetweenVolumes = 1.56 #self.repetition_time
 
@@ -250,10 +252,10 @@ class DSC_process:
         for z in tqdm(range(self.conc_data.shape[2]), desc="Slice"):
             # Slice wise initial guess:
             # Compute SVD only where mask is True and store results #TODO AIF matrix in mySvd does not have to be calculated each time. Could be more made more efficent, however it is still rather fast.     
-            svd_res = [mySvd(self.conc_data[x, y, z, :], self.aif, self.baseline_end, TimeBetweenVolumes) for x in range(self.conc_data.shape[0]) for y in range(self.conc_data.shape[1]) if mask[x, y, z]]
+            svd_res = [mySvd(self.conc_data[x, y, z, :], self.aif, self.baseline_end, TimeBetweenVolumes) for x in range(self.conc_data.shape[0]) for y in range(self.conc_data.shape[1]) if self.mask[x, y, z]]
             svd_cbf, svd_delay, _, _ = map(np.array,zip(*svd_res))
 
-            cbvbyC = np.array([np.trapz(np.clip(self.conc_data[x, y, z, :], a_min=0, a_max=None), dx=TimeBetweenVolumes)/aif_area for x in range(self.conc_data.shape[0]) for y in range(self.conc_data.shape[1]) if mask[x, y, z]])
+            cbvbyC = np.array([np.trapz(np.clip(self.conc_data[x, y, z, :], a_min=0, a_max=None), dx=TimeBetweenVolumes)/aif_area for x in range(self.conc_data.shape[0]) for y in range(self.conc_data.shape[1]) if self.mask[x, y, z]])
             svd_mtt = cbvbyC/svd_cbf
 
             # Adjust initial paramters if they are beyond the limits
@@ -261,10 +263,10 @@ class DSC_process:
             svd_mtt[svd_mtt <= 0] = 1
             svd_cbf[svd_cbf <= 0] = np.min(svd_cbf[svd_cbf >= 0])
 
-            p_slice = [np.log(np.array([svd_cbf[i], 1, svd_delay[i], svd_mtt[i]])) for i in range(mask[:, :, z].sum())]
+            p_slice = [np.log(np.array([svd_cbf[i], 1, svd_delay[i], svd_mtt[i]])) for i in range(self.mask[:, :, z].sum())]
 
             # Perform voxel-wise deconvolution
-            for mask_index, (x, y) in tqdm(enumerate(np.argwhere(mask[:,:,z])), total=mask[:, :, z].sum(), desc='Voxel', leave=False): # Keep track of index according to p_slice
+            for mask_index, (x, y) in tqdm(enumerate(np.argwhere(self.mask[:,:,z])), total=self.mask[:, :, z].sum(), desc='Voxel', leave=False): # Keep track of index according to p_slice
             # for mask_index, (x, y) in enumerate(np.argwhere(mask[:,:,z])): # Keep track of index according to p_slice
                 voxel_data = self.conc_data[x,y,z]
 
@@ -290,37 +292,46 @@ class DSC_process:
         self._save_img(rth_img, 'RTH')
 
     def _smooth_data(self, smooth_mask):
-        # Smooth image
-        # Kernal illustration (like matlab)
-        from scipy.ndimage import gaussian_filter
-        img = np.zeros((5,5))
-        img[2,2] = 1
-        fwhm = 1.5 # From matlab. Not sure why this is selected. Half a voxel? 
+        # Slice-wise smoothing of image
+        # TODO Options (gaussian/uniform, filter size)
+
+        conc_data_smoothed = np.zeros_like(self.conc_data)
+        fwhm = 1.5 # From matlab. Not sure why this is selected. Half a voxel? Should be based on voxel size
         sigma = fwhm / np.sqrt(8 * np.log(2))
         kernel = gaussian_filter((np.arange(9) == 4).reshape(3,3).astype(float), sigma)
-        baseline_start = 4
+        # baseline_start = 4 # TODO is this nesesary? Perhaps just smooth from bl_end. In that case 
 
         if smooth_mask is not None:
             smooth_mask = nib.load(smooth_mask).get_fdata() # TODO Check header. 
+            smooth_mask = smooth_mask * self.mask
         else:
             smooth_mask = None
 
-        for frame in range(baseline_start,self.conc_data.shape[-1]):
+        for frame in range(self.conc_data.shape[-1]):
             for z_slice in range(self.conc_data.shape[2]):
                 slice_data = self.conc_data[:,:,z_slice,frame]
                 # Step 1: Smooth all voxels and only keep non-zero voxels from original data
-                mask = (slice_data != 0).astype(float)
-                smoothed_image = convolve(slice_data, kernel, mode='constant', cval=0)
+                slice_mask = (self.mask[:,:,z_slice] != 0).astype(float)
+                smoothed_slice = convolve(slice_data, kernel, mode='constant', cval=0)
 
-                # Scale edge pixels with valid pixels with kernel
-                count_valid = convolve(mask, kernel, mode='constant', cval=0)
-                smoothed_image = np.divide(smoothed_image, count_valid, out=np.zeros_like(smoothed_image), where=count_valid != 0)
-                # #TODO remove edge pixels 
+                # Scale edge voxels with valid voxels within kernel
+                count_valid = convolve(slice_mask, kernel, mode='constant', cval=0)
+                smoothed_slice = np.divide(smoothed_slice, count_valid, out=np.zeros_like(smoothed_slice), where=count_valid != 0)
+                # #TODO remove edge voxels 
+
+                conc_data_smoothed[:,:,z_slice] = smoothed_slice
 
                 if smooth_mask is not None:
-                    pass #TODO do the same within smooth mask 
-                    
+                    slice_smoothing_mask = (smooth_mask[:,:,z_slice] != 0).astype(float)
+                    smoothed_masked_slice = convolve(slice_data, kernel, mode='constant', cval=0)
+                    # Scale edge voxels with valid voxels within kernel
+                    count_valid = convolve(slice_smoothing_mask, kernel, mode='constant', cval=0)
+                    smoothed_masked_slice = np.divide(smoothed_masked_slice, count_valid, out=np.zeros_like(smoothed_masked_slice), where=count_valid != 0)
 
+                    # Overwrite voxels in smooth_mask
+                    conc_data_smoothed[smooth_mask[:,:,z_slice] != 0] = smoothed_masked_slice[smooth_mask[:,:,z_slice] != 0]
+
+        return conc_data_smoothed
 
     def _calc_perfusion_voxel(self, y, t, p, sampling_factor, TimeBetweenVolumes):
         # Only use bolus passage in the remaining optimization
