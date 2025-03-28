@@ -5,6 +5,7 @@ import ants
 import skimage.util
 from pathlib import Path
 from deconv_helperFunctions import mySvd, IntDcmTR, spm_nlso_gn_no_graphic
+from scipy.ndimage import convolve
 
 class DSC_process:
 
@@ -221,9 +222,10 @@ class DSC_process:
 
         self._qc_aif_selection()
 
-    def calc_perfusion(self, sampling_factor:int = 8):
-        pass
+    def calc_perfusion(self, smooth_mask:str = None, sampling_factor:int = 8):
         # Smoothing mask
+        self._smooth_data(smooth_mask)
+
         # Calc TTP 
         mask = ~np.all(self.conc_data == 0, axis=-1)
         aif_area = np.trapz(self.aif) * self.repetition_time # In MATLAB, the aif_area is read from the AIF info file. This is a bit different (not sure why) and may cause tiny differences in the results compared to MATLAB.
@@ -244,47 +246,38 @@ class DSC_process:
 
         t = np.arange(self.conc_data.shape[3]) * TimeBetweenVolumes # OBS: Should probably be repetition time, however this is different from TimeBetweenVolumes in MATLAB 1.56 vs. 1.563
 
-        for z in range(self.conc_data.shape[2]):
+        from tqdm import tqdm
+        for z in tqdm(range(self.conc_data.shape[2]), desc="Slice"):
             # Slice wise initial guess:
-            # Compute SVD only where mask is True and store results
-            p_slice = np.zeros(self.conc_data.shape[:2], dtype=object)
-            for y in range(self.conc_data.shape[1]):
-                for x in range(self.conc_data.shape[0]):
-                    if mask[x, y, z]:
-                        svd_cbf, svd_delay, _, _ = mySvd(self.conc_data[x, y, z, :], self.aif, self.baseline_end, TimeBetweenVolumes)
-                        cbvbyC = np.trapz(np.clip(self.conc_data[x, y, z, :], a_min=0, a_max=None), dx=TimeBetweenVolumes)/aif_area 
-                        svd_mtt = cbvbyC/svd_cbf
+            # Compute SVD only where mask is True and store results #TODO AIF matrix in mySvd does not have to be calculated each time. Could be more made more efficent, however it is still rather fast.     
+            svd_res = [mySvd(self.conc_data[x, y, z, :], self.aif, self.baseline_end, TimeBetweenVolumes) for x in range(self.conc_data.shape[0]) for y in range(self.conc_data.shape[1]) if mask[x, y, z]]
+            svd_cbf, svd_delay, _, _ = map(np.array,zip(*svd_res))
 
-                        # Adjust initial paramters if they are beyond the limits
-                        if svd_delay == 0: # Will cause problems when log transforming paramters for optimization
-                            svd_delay = TimeBetweenVolumes/sampling_factor
-                        if svd_mtt >= 0:
-                            svd_mtt = 1
-                        # TODO Set constrains on CBV
+            cbvbyC = np.array([np.trapz(np.clip(self.conc_data[x, y, z, :], a_min=0, a_max=None), dx=TimeBetweenVolumes)/aif_area for x in range(self.conc_data.shape[0]) for y in range(self.conc_data.shape[1]) if mask[x, y, z]])
+            svd_mtt = cbvbyC/svd_cbf
 
-                        # Setup initial parameters
-                        p_slice[x,y] = np.log(np.array([svd_cbf, 1, svd_delay, svd_mtt]))
+            # Adjust initial paramters if they are beyond the limits
+            svd_delay[svd_delay == 0] = TimeBetweenVolumes/sampling_factor # Delay of 0 Will cause problems when log transforming paramters for optimization (log(0) = -Inf)
+            svd_mtt[svd_mtt <= 0] = 1
+            svd_cbf[svd_cbf <= 0] = np.min(svd_cbf[svd_cbf >= 0])
 
-            if z != 0:
-                continue
-            for y in range(self.conc_data.shape[1]):
-                for x in range(self.conc_data.shape[0]):
+            p_slice = [np.log(np.array([svd_cbf[i], 1, svd_delay[i], svd_mtt[i]])) for i in range(mask[:, :, z].sum())]
 
-                    voxel_data = self.conc_data[x,y,z,:]
+            # Perform voxel-wise deconvolution
+            for mask_index, (x, y) in tqdm(enumerate(np.argwhere(mask[:,:,z])), total=mask[:, :, z].sum(), desc='Voxel', leave=False): # Keep track of index according to p_slice
+            # for mask_index, (x, y) in enumerate(np.argwhere(mask[:,:,z])): # Keep track of index according to p_slice
+                voxel_data = self.conc_data[x,y,z]
 
-                    if np.all(voxel_data == 0):
-                        continue #TODO use mask
+                cbv, cbf, alpha, beta, delay, mtt, cth, rth = self._calc_perfusion_voxel(voxel_data, t, p_slice[mask_index], sampling_factor, TimeBetweenVolumes)
 
-                    cbv, cbf, alpha, beta, delay, mtt, cth, rth = self._calc_perfusion_voxel(voxel_data, t, p_slice[x,y], sampling_factor, TimeBetweenVolumes)
-
-                    alpha_img[x,y,z] = alpha
-                    beta_img[x,y,z] = beta
-                    delay_img[x,y,z] = delay
-                    cbf_img[x,y,z] = cbf
-                    cbv_img[x,y,z] = cbv
-                    mtt_img[x,y,z] = mtt
-                    cth_img[x,y,z] = cth
-                    rth_img[x,y,z] = rth
+                alpha_img[x,y,z] = alpha
+                beta_img[x,y,z] = beta
+                delay_img[x,y,z] = delay
+                cbf_img[x,y,z] = cbf
+                cbv_img[x,y,z] = cbv
+                mtt_img[x,y,z] = mtt
+                cth_img[x,y,z] = cth
+                rth_img[x,y,z] = rth
 
         # Save parametric images
         self._save_img(alpha_img, 'ALPHA')
@@ -295,6 +288,39 @@ class DSC_process:
         self._save_img(mtt_img, 'MTT')
         self._save_img(cth_img, 'CTH')
         self._save_img(rth_img, 'RTH')
+
+    def _smooth_data(self, smooth_mask):
+        # Smooth image
+        # Kernal illustration (like matlab)
+        from scipy.ndimage import gaussian_filter
+        img = np.zeros((5,5))
+        img[2,2] = 1
+        fwhm = 1.5 # From matlab. Not sure why this is selected. Half a voxel? 
+        sigma = fwhm / np.sqrt(8 * np.log(2))
+        kernel = gaussian_filter((np.arange(9) == 4).reshape(3,3).astype(float), sigma)
+        baseline_start = 4
+
+        if smooth_mask is not None:
+            smooth_mask = nib.load(smooth_mask).get_fdata() # TODO Check header. 
+        else:
+            smooth_mask = None
+
+        for frame in range(baseline_start,self.conc_data.shape[-1]):
+            for z_slice in range(self.conc_data.shape[2]):
+                slice_data = self.conc_data[:,:,z_slice,frame]
+                # Step 1: Smooth all voxels and only keep non-zero voxels from original data
+                mask = (slice_data != 0).astype(float)
+                smoothed_image = convolve(slice_data, kernel, mode='constant', cval=0)
+
+                # Scale edge pixels with valid pixels with kernel
+                count_valid = convolve(mask, kernel, mode='constant', cval=0)
+                smoothed_image = np.divide(smoothed_image, count_valid, out=np.zeros_like(smoothed_image), where=count_valid != 0)
+                # #TODO remove edge pixels 
+
+                if smooth_mask is not None:
+                    pass #TODO do the same within smooth mask 
+                    
+
 
     def _calc_perfusion_voxel(self, y, t, p, sampling_factor, TimeBetweenVolumes):
         # Only use bolus passage in the remaining optimization

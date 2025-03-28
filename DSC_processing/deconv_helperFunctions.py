@@ -69,7 +69,8 @@ def mySvd(conc_data, aif, baseline_end, TimeBetweenVolumes, threshold=0.2):
     S[S<S[0]*threshold] = 0
     np.fill_diagonal(S_matrix, S)
 
-    S_inv = np.where(S_matrix != 0, 1 / S_matrix, 0)
+    S_inv = np.zeros_like(S_matrix)
+    S_inv[S_matrix != 0] = 1/S_matrix[S_matrix != 0]
 
     # SVD matrix, truncated and inversed
     invAIF = Vh.T @ S_inv @ U.T
@@ -79,6 +80,7 @@ def mySvd(conc_data, aif, baseline_end, TimeBetweenVolumes, threshold=0.2):
 
     # Calculate parameters CBF, CBV and delay
     cbf, max_sample = np.max(rf), np.argmax(rf)
+    
     cbv = np.trapz(rf, dx=TimeBetweenVolumes) # To get exaclty the same as in the MATLAB implementation 
     delay = max_sample * TimeBetweenVolumes
 
@@ -119,8 +121,9 @@ def aifm_sim(aif, delt, dosmooth):
     return A
 
 def spm_nlso_gn_no_graphic(model_fn, pE, pC, y, t):
-    pass
-
+    """
+    Implementation of spm_nlso_gn_no_graphic from MATLAB (CFIN repo)
+    """
     Cp = pC
     Ep = pE
 
