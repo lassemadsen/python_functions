@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import ants
 import skimage.util
 from pathlib import Path
-from deconv_helperFunctions import mySvd, IntDcmTR, spm_nlso_gn_no_graphic
+from deconv_helperFunctions import mySvd, IntDcmTR, spm_nlso_gn_no_graphic, calc_CBV_by_integration
 from scipy.ndimage import convolve, gaussian_filter
 
 class DSC_process:
@@ -50,22 +50,21 @@ class DSC_process:
             threshold = pct[threshold_index]
         self.noise_threshold = threshold
 
-        self.mask = self.img_data > threshold
-        self.img_data[self.img_data <= threshold] = np.nan
-        self.img_data[np.any(np.isnan(self.img_data),axis=3)] = np.nan
+        self.mask = np.any(self.img_data > threshold,axis=3)
+        self.img_data[~self.mask,:] = 0
 
     def baseline_detection(self):
         """ 
         Performs baseline detection.
         """
-        mean_signal = np.nanmean(self.img_data, (0,1,2))
+        mean_signal = np.mean(self.img_data[self.mask],axis=0)
 
         # Smooth 
         window = 3
         moving_avg = np.convolve(mean_signal, np.ones(window)/window, mode='same')
 
         gradients_smooth = np.diff(moving_avg)
-        threshold = -(np.nanmax(mean_signal)-np.nanmin(mean_signal))/20 # 5 % drop
+        threshold = -(np.max(mean_signal)-np.min(mean_signal))/20 # 5 % drop
         self.baseline_end = int(np.where(gradients_smooth < threshold)[0][0])
 
         self._qc_baseline_detection()
@@ -91,7 +90,7 @@ class DSC_process:
             print('Slice time correction has already been done. Skipping...')
             return
 
-        TimeBetweenVolumes = 1.56
+        TimeBetweenVolumes = self.repetition_time
 
         nx, ny, nslices, nframes = self.img_data.shape
 
@@ -168,8 +167,7 @@ class DSC_process:
             print('Baseline end must be set prior to motion correction.')
             return
 
-        # Convert NaN to 0 for ANTs registration to work 
-        ants_img = ants.from_numpy(np.nan_to_num(self.img_data)) 
+        ants_img = ants.from_numpy(self.img_data)
         spacing = self.img_hdr.get_zooms()
         direction = np.concatenate((np.concatenate((self.img.affine[:3, :3] / spacing[:3], np.array([[0,0,0]]))), np.array([[0,0,0,1]]).T),axis=1)
 
@@ -186,10 +184,7 @@ class DSC_process:
             mytx = ants.registration(fixed_img, moving_img, type_of_transform='DenseRigid')
             ants_img[:,:,:,i] = ants.apply_transforms(fixed=fixed_img, moving=moving_img, transformlist=mytx['fwdtransforms'])
 
-        # Convert back to NaN
-        ants_img_data = ants_img.numpy()
-        ants_img_data[np.isnan(self.img_data)] = np.nan
-        self.img_data = ants_img_data
+        self.img_data = ants_img.numpy()
 
         #TODO Check overwrite image data 
         #TODO Recalcualte mean image data
@@ -227,11 +222,11 @@ class DSC_process:
     def calc_perfusion(self, smooth_mask:str = None, sampling_factor:int = 8):
         # Smoothing mask
         self.mask = ~np.all(self.conc_data == 0, axis=-1) # TODO Only for debugging
-        self._smooth_data(smooth_mask)
+        conc_data_calc = self._smooth_data(smooth_mask)
 
-        # Calc TTP 
+        #TODO Calc TTP 
         aif_area = np.trapz(self.aif) * self.repetition_time # In MATLAB, the aif_area is read from the AIF info file. This is a bit different (not sure why) and may cause tiny differences in the results compared to MATLAB.
-        TimeBetweenVolumes = 1.56 #self.repetition_time
+        TimeBetweenVolumes = self.repetition_time
 
         # Initialize parameter images:
         alpha_img = np.zeros_like(self.img_data_mean)
@@ -243,20 +238,23 @@ class DSC_process:
         cth_img = np.zeros_like(self.img_data_mean)
         rth_img = np.zeros_like(self.img_data_mean)
 
-        # idx = np.unravel_index(911, self.conc_data.shape, order='F')
-        # conc_voxel = self.conc_data[idx[0],idx[1],idx[2],:] # First voxel in mask slice 0 matlab
+        t = np.arange(conc_data_calc.shape[3]) * TimeBetweenVolumes # OBS: Should probably be repetition time, however this is different from TimeBetweenVolumes in MATLAB 1.56 vs. 1.563
 
-        t = np.arange(self.conc_data.shape[3]) * TimeBetweenVolumes # OBS: Should probably be repetition time, however this is different from TimeBetweenVolumes in MATLAB 1.56 vs. 1.563
+        cbvbyC = calc_CBV_by_integration(self.conc_data[:,:,:,self.baseline_end:], TimeBetweenVolumes, aif_area, self.mask)
+        
+        # Mask 5 and 95 percentiles of CBV
+        self.mask[cbvbyC > np.percentile(cbvbyC[self.mask], 95)] = False 
+        self.mask[cbvbyC < np.percentile(cbvbyC[self.mask], 5)] = False
 
         from tqdm import tqdm
-        for z in tqdm(range(self.conc_data.shape[2]), desc="Slice"):
+        for z in tqdm(range(conc_data_calc.shape[2]), desc="Slice"):
             # Slice wise initial guess:
             # Compute SVD only where mask is True and store results #TODO AIF matrix in mySvd does not have to be calculated each time. Could be more made more efficent, however it is still rather fast.     
-            svd_res = [mySvd(self.conc_data[x, y, z, :], self.aif, self.baseline_end, TimeBetweenVolumes) for x in range(self.conc_data.shape[0]) for y in range(self.conc_data.shape[1]) if self.mask[x, y, z]]
+            svd_res = [mySvd(conc_data_calc[x, y, z, :], self.aif, self.baseline_end, TimeBetweenVolumes) for x in range(conc_data_calc.shape[0]) for y in range(conc_data_calc.shape[1]) if self.mask[x, y, z]]
             svd_cbf, svd_delay, _, _ = map(np.array,zip(*svd_res))
 
-            cbvbyC = np.array([np.trapz(np.clip(self.conc_data[x, y, z, :], a_min=0, a_max=None), dx=TimeBetweenVolumes)/aif_area for x in range(self.conc_data.shape[0]) for y in range(self.conc_data.shape[1]) if self.mask[x, y, z]])
-            svd_mtt = cbvbyC/svd_cbf
+            # cbvbyC = np.array([np.trapz(np.clip(conc_data_calc[x, y, z, self.baseline_end:], a_min=0, a_max=None), dx=TimeBetweenVolumes)/aif_area for x in range(conc_data_calc.shape[0]) for y in range(conc_data_calc.shape[1]) if self.mask[x, y, z]])
+            svd_mtt = cbvbyC[:,:,z][self.mask[:,:,z]]/svd_cbf
 
             # Adjust initial paramters if they are beyond the limits
             svd_delay[svd_delay == 0] = TimeBetweenVolumes/sampling_factor # Delay of 0 Will cause problems when log transforming paramters for optimization (log(0) = -Inf)
@@ -268,7 +266,7 @@ class DSC_process:
             # Perform voxel-wise deconvolution
             for mask_index, (x, y) in tqdm(enumerate(np.argwhere(self.mask[:,:,z])), total=self.mask[:, :, z].sum(), desc='Voxel', leave=False): # Keep track of index according to p_slice
             # for mask_index, (x, y) in enumerate(np.argwhere(mask[:,:,z])): # Keep track of index according to p_slice
-                voxel_data = self.conc_data[x,y,z]
+                voxel_data = conc_data_calc[x,y,z]
 
                 cbv, cbf, alpha, beta, delay, mtt, cth, rth = self._calc_perfusion_voxel(voxel_data, t, p_slice[mask_index], sampling_factor, TimeBetweenVolumes)
 
@@ -291,15 +289,16 @@ class DSC_process:
         self._save_img(cth_img, 'CTH')
         self._save_img(rth_img, 'RTH')
 
-    def _smooth_data(self, smooth_mask):
+    def _smooth_data(self, smooth_mask: str):
         # Slice-wise smoothing of image
         # TODO Options (gaussian/uniform, filter size)
 
         conc_data_smoothed = np.zeros_like(self.conc_data)
         fwhm = 1.5 # From matlab. Not sure why this is selected. Half a voxel? Should be based on voxel size
-        sigma = fwhm / np.sqrt(8 * np.log(2))
-        kernel = gaussian_filter((np.arange(9) == 4).reshape(3,3).astype(float), sigma)
-        # baseline_start = 4 # TODO is this nesesary? Perhaps just smooth from bl_end. In that case 
+        # sigma = fwhm / np.sqrt(8 * np.log(2))
+        # kernel = gaussian_filter((np.arange(9) == 4).reshape(3,3).astype(float), sigma)
+        kernel = self._get_kernel(fwhm, 3)
+        edge_width = int((kernel.shape[0]-1)/2)
 
         if smooth_mask is not None:
             smooth_mask = nib.load(smooth_mask).get_fdata() # TODO Check header. 
@@ -317,9 +316,8 @@ class DSC_process:
                 # Scale edge voxels with valid voxels within kernel
                 count_valid = convolve(slice_mask, kernel, mode='constant', cval=0)
                 smoothed_slice = np.divide(smoothed_slice, count_valid, out=np.zeros_like(smoothed_slice), where=count_valid != 0)
-                # #TODO remove edge voxels 
-
-                conc_data_smoothed[:,:,z_slice] = smoothed_slice
+                self._zero_edge(smoothed_slice, edge_width)
+                conc_data_smoothed[:,:,z_slice, frame] = smoothed_slice
 
                 if smooth_mask is not None:
                     slice_smoothing_mask = (smooth_mask[:,:,z_slice] != 0).astype(float)
@@ -327,13 +325,38 @@ class DSC_process:
                     # Scale edge voxels with valid voxels within kernel
                     count_valid = convolve(slice_smoothing_mask, kernel, mode='constant', cval=0)
                     smoothed_masked_slice = np.divide(smoothed_masked_slice, count_valid, out=np.zeros_like(smoothed_masked_slice), where=count_valid != 0)
-
                     # Overwrite voxels in smooth_mask
-                    conc_data_smoothed[smooth_mask[:,:,z_slice] != 0] = smoothed_masked_slice[smooth_mask[:,:,z_slice] != 0]
+                    conc_data_smoothed[:,:,z_slice,frame][smooth_mask[:,:,z_slice] != 0] = smoothed_masked_slice[smooth_mask[:,:,z_slice] != 0]
+
+                # Set edges to zero
+                conc_data_smoothed[:,:,z_slice,frame] = self._zero_edge(conc_data_smoothed[:,:,z_slice,frame], edge_width)
+                self.mask[:,:,z_slice] = self._zero_edge(self.mask[:,:,z_slice], edge_width)
 
         return conc_data_smoothed
 
-    def _calc_perfusion_voxel(self, y, t, p, sampling_factor, TimeBetweenVolumes):
+    def _get_kernel(self, fwhm, kernel_width):
+        """ Funciton to get smoothing kernel exactly like DSC-pipeline in MATLAB (CFIN repo: gauss_kern.m)
+        """
+        sigma = fwhm / np.sqrt(8 * np.log(2)) + np.finfo(float).eps
+
+        lx = (kernel_width-1)/2
+        Ex = np.min([np.ceil(3*sigma), lx])
+        x = np.arange(-Ex, Ex+Ex/2) # +Ex/2 to make sure last point is included
+        kx = np.exp(-x**2 / (2 * sigma**2))
+        kx = kx/np.sum(kx)
+        kernel = np.tile(kx, (kernel_width,1)) * np.tile(kx, (kernel_width,1)).T
+
+        return kernel
+
+    def _zero_edge(self, arr: np.array, edge_width: int):
+        arr[:edge_width] = 0       # Top edge
+        arr[-edge_width:] = 0      # Bottom edge
+        arr[:, :edge_width] = 0    # Left edge
+        arr[:, -edge_width:] = 0   # Right edge
+
+        return arr
+
+    def _calc_perfusion_voxel(self, y: np.array, t: np.array, p: np.array, sampling_factor: int, TimeBetweenVolumes: float):
         # Only use bolus passage in the remaining optimization
         y = y[self.baseline_end:]
         t_bolus = t[self.baseline_end:] - t[self.baseline_end] # Time vector from baseline end
@@ -403,8 +426,8 @@ class DSC_process:
         self.aif_seach_mask = mask.get_fdata()
 
     # QC methods
-    def _qc_baseline_detection(self, truncated=False):
-        mean_signal = np.nanmean(self.img_data, (0,1,2))
+    def _qc_baseline_detection(self, truncated: bool = False):
+        mean_signal = np.mean(self.img_data[self.mask],axis=0)
         plt.figure()
         plt.plot(range(len(mean_signal))*self.repetition_time, mean_signal)
         plt.scatter(self.baseline_end*self.repetition_time, mean_signal[self.baseline_end])
@@ -429,7 +452,6 @@ class DSC_process:
         dif_images = np.stack([self.img_data[:,:,:,i] - self.img_data[:,:,:,self.baseline_end] for i in range(self.img_data.shape[3])], axis=-1)
 
         m = skimage.util.montage([dif_images[:,:,slice_number,i] for i in range(dif_images.shape[3])], grid_shape=(np.ceil(dif_images.shape[3]/n_cols), n_cols))
-        np.nan_to_num(m, 0)
         
         plt.figure()
         plt.imshow(m, cmap='gray')
@@ -439,7 +461,7 @@ class DSC_process:
         plt.close()
                     
     def _qc_concentration(self):
-        mean_conc = np.nanmean(self.conc_data, (0,1,2))
+        mean_conc = np.mean(self.conc_data[self.mask],axis=0)
         plt.figure()
         plt.plot(range(len(mean_conc))*self.repetition_time, mean_conc)
         plt.scatter(self.baseline_end*self.repetition_time, mean_conc[self.baseline_end])
@@ -456,7 +478,7 @@ class DSC_process:
         else:
             self.aif_select.qc_aif(f'{self.qc_dir}/{self.sub_id}_{self.tp}_aif_selection.jpg')
 
-    def _qc_slice_time_correction(self, original, slice_time_corrected):
+    def _qc_slice_time_correction(self, original: np.array, slice_time_corrected: np.array):
         # QC: Compute mean along first two axes and find min position
         fig, ax = plt.subplots(1,2, figsize=(14,6))
         n_slices = self.img_data.shape[2]
@@ -464,13 +486,11 @@ class DSC_process:
         minpostps = np.zeros(n_slices)
 
         for i in range(n_slices):
-            # avg_signal_pre_correction = np.nanmean(original[:,:,i,:], (0,1))
-            avg_signal_pre_correction = np.mean(np.nan_to_num(original[:,:,i,:]), (0,1))
-            minpos[i] = np.nanargmin(avg_signal_pre_correction)*self.repetition_time
+            avg_signal_pre_correction = np.mean(original[self.mask[:,:,0],i,:],axis=0)
+            minpos[i] = np.argmin(avg_signal_pre_correction)*self.repetition_time
 
-            # avg_signal_post_correction = np.nanmean(slice_time_corrected[:,:,i,:], (0,1))
-            avg_signal_post_correction = np.mean(np.nan_to_num(slice_time_corrected[:,:,i,:]), (0,1))
-            minpostps[i] = np.nanargmin(avg_signal_post_correction)*self.repetition_time
+            avg_signal_post_correction = np.mean(slice_time_corrected[self.mask[:,:,0],i,:],axis=0)
+            minpostps[i] = np.argmin(avg_signal_post_correction)*self.repetition_time
 
             if i == 0: # Only label on fist iteration
                 label_orig = 'Original'
@@ -502,7 +522,7 @@ class DSC_process:
 
 
     # Save function
-    def _save_img(self, data, name):
+    def _save_img(self, data: np.array, name: str):
         #TODO Maybe track progression of analysis
         #TODO should header be different? 
 

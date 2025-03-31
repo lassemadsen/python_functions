@@ -56,6 +56,17 @@ class IntDcmTR:
 
         return y
     
+def calc_CBV_by_integration(conc_data: np.array, TimeBetweenVolumes: float, aif_area: float, mask: np.array = None):
+    cbv_by_integration = np.zeros_like(conc_data[...,0])
+
+    for z in range(conc_data.shape[2]):
+        for y in range(conc_data.shape[1]):
+            for x in range(conc_data.shape[0]):
+                if mask is None or mask[x,y,z]:
+                    cbv_by_integration[x,y,z] = np.trapz(np.clip(conc_data[x, y, z, :], a_min=0, a_max=None), dx=TimeBetweenVolumes)/aif_area
+
+    return cbv_by_integration
+
 def mySvd(conc_data, aif, baseline_end, TimeBetweenVolumes, threshold=0.2):
     """
     Calculate the residual function, CBF, CBV and delay using SVD
@@ -240,7 +251,6 @@ def spm_nlso_gn_no_graphic(model_fn, pE, pC, y, t):
         oldF = F
 
     return Ep, Cp, S, F
-
 
 def spm_logdet(C):
     """returns the log of the determinant of the positive definite matrix C
