@@ -243,71 +243,83 @@ class DSC_process:
 
         self._qc_aif_selection()
 
-    def calc_perfusion(self, sampling_factor:int = 8):
+    def calc_perfusion(self, sampling_factor:int = 8, aif_area:float = None, TimeBetweenVolumes:float = None):
         #TODO Calc TTP 
-        aif_area = np.trapz(self.aif) * self.repetition_time # In MATLAB, the aif_area is read from the AIF info file. This is a bit different (not sure why) and may cause tiny differences in the results compared to MATLAB.
-        TimeBetweenVolumes = self.repetition_time
+        if aif_area is None:
+            aif_area = np.trapz(self.aif) * self.repetition_time # In MATLAB, the aif_area is read from the AIF info file. This is a bit different (not sure why) and may cause tiny differences in the results compared to MATLAB.
+        if TimeBetweenVolumes is None:
+            TimeBetweenVolumes = self.repetition_time
 
         # Initialize parameter images:
-        alpha_img = np.zeros_like(self.img_data_mean)
-        beta_img = np.zeros_like(self.img_data_mean)
-        delay_img = np.zeros_like(self.img_data_mean)
-        cbf_img = np.zeros_like(self.img_data_mean)
-        cbv_img = np.zeros_like(self.img_data_mean)
-        mtt_img = np.zeros_like(self.img_data_mean)
-        cth_img = np.zeros_like(self.img_data_mean)
-        rth_img = np.zeros_like(self.img_data_mean)
+        self.alpha_img = np.zeros_like(self.img_data_mean)
+        self.beta_img = np.zeros_like(self.img_data_mean)
+        self.delay_img = np.zeros_like(self.img_data_mean)
+        self.cbf_img = np.zeros_like(self.img_data_mean)
+        self.cbv_img = np.zeros_like(self.img_data_mean)
+        self.mtt_img = np.zeros_like(self.img_data_mean)
+        self.cth_img = np.zeros_like(self.img_data_mean)
+        self.rth_img = np.zeros_like(self.img_data_mean)
 
         t = np.arange(self.conc_data.shape[3]) * TimeBetweenVolumes # OBS: Should probably be repetition time, however this is different from TimeBetweenVolumes in MATLAB 1.56 vs. 1.563
 
-        cbvbyC = calc_CBV_by_integration(self.conc_data[:,:,:,self.baseline_end:], TimeBetweenVolumes, aif_area, self.mask)
-        
-        # Mask 5 and 95 percentiles of CBV
-        self.mask[cbvbyC > np.percentile(cbvbyC[self.mask], 95)] = False 
-        self.mask[cbvbyC < np.percentile(cbvbyC[self.mask], 5)] = False
+        # Mask 5 and 95 percentiles of CBV #TODO Should be done in concentration step
+        # self.mask[cbvbyC > np.percentile(cbvbyC[self.mask], 95)] = False 
+        # self.mask[cbvbyC < np.percentile(cbvbyC[self.mask], 5)] = False
 
         from tqdm import tqdm
         for z in tqdm(range(self.conc_data.shape[2]), desc="Slice"):
+            if not np.any(self.mask[:, :, z]):
+                continue # No valid data in slice
             # Slice wise initial guess:
             # Compute SVD only where mask is True and store results #TODO AIF matrix in mySvd does not have to be calculated each time. Could be more made more efficent, however it is still rather fast.     
-            svd_res = [mySvd(self.conc_data[x, y, z, :], self.aif, self.baseline_end, TimeBetweenVolumes) for x in range(self.conc_data.shape[0]) for y in range(self.conc_data.shape[1]) if self.mask[x, y, z]]
+
+            # Find valid voxels
+            voxels = np.argwhere(self.mask[:, :, z])
+            voxels = voxels[np.argsort(voxels[:, 1])] # Sort same as matlab
+
+            svd_res = [mySvd(self.conc_data[voxels[i,0], voxels[i,1], z, :], self.aif, self.baseline_end, TimeBetweenVolumes) for i in range(len(voxels))]
+
             svd_cbf, svd_delay, _, _ = map(np.array,zip(*svd_res))
 
-            # cbvbyC = np.array([np.trapz(np.clip(conc_data_calc[x, y, z, self.baseline_end:], a_min=0, a_max=None), dx=TimeBetweenVolumes)/aif_area for x in range(conc_data_calc.shape[0]) for y in range(conc_data_calc.shape[1]) if self.mask[x, y, z]])
-            svd_mtt = cbvbyC[:,:,z][self.mask[:,:,z]]/svd_cbf
+            cbvbyC = np.array([calc_CBV_by_integration(self.conc_data[voxels[i,0], voxels[i,1], z, self.baseline_end:], TimeBetweenVolumes, aif_area) for i in range(len(voxels))])
+
+            svd_mtt = np.array([cbvbyC[i]/svd_cbf[i] if svd_cbf[i] != 0 else 0 for i in range(len(voxels))])
 
             # Adjust initial paramters if they are beyond the limits
             svd_delay[svd_delay == 0] = TimeBetweenVolumes/sampling_factor # Delay of 0 Will cause problems when log transforming paramters for optimization (log(0) = -Inf)
+            svd_delay = np.array([np.min([svd_delay[i], 5/(TimeBetweenVolumes/sampling_factor)]) for i in range(len(voxels))])
+
+
             svd_mtt[svd_mtt <= 0] = 1
-            svd_cbf[svd_cbf <= 0] = np.min(svd_cbf[svd_cbf >= 0])
+            svd_cbf[svd_cbf == 0] = np.min(svd_cbf[svd_cbf != 0])
 
             p_slice = [np.log(np.array([svd_cbf[i], 1, svd_delay[i], svd_mtt[i]])) for i in range(self.mask[:, :, z].sum())]
 
-            # Perform voxel-wise deconvolution
-            for mask_index, (x, y) in tqdm(enumerate(np.argwhere(self.mask[:,:,z])), total=self.mask[:, :, z].sum(), desc='Voxel', leave=False): # Keep track of index according to p_slice
-            # for mask_index, (x, y) in enumerate(np.argwhere(mask[:,:,z])): # Keep track of index according to p_slice
+            for i in tqdm(range(len(voxels)), desc='Voxel', leave=False):
+                x = voxels[i][0]
+                y = voxels[i][1]
                 voxel_data = self.conc_data[x,y,z]
 
-                cbv, cbf, alpha, beta, delay, mtt, cth, rth = self._calc_perfusion_voxel(voxel_data, t, p_slice[mask_index], sampling_factor, TimeBetweenVolumes)
+                cbv, cbf, alpha, beta, delay, mtt, cth, rth = self._calc_perfusion_voxel(voxel_data, t, p_slice[i], sampling_factor, TimeBetweenVolumes)
 
-                alpha_img[x,y,z] = alpha
-                beta_img[x,y,z] = beta
-                delay_img[x,y,z] = delay
-                cbf_img[x,y,z] = cbf
-                cbv_img[x,y,z] = cbv
-                mtt_img[x,y,z] = mtt
-                cth_img[x,y,z] = cth
-                rth_img[x,y,z] = rth
+                self.alpha_img[x,y,z] = alpha
+                self.beta_img[x,y,z] = beta
+                self.delay_img[x,y,z] = delay
+                self.cbf_img[x,y,z] = cbf
+                self.cbv_img[x,y,z] = cbv
+                self.mtt_img[x,y,z] = mtt
+                self.cth_img[x,y,z] = cth
+                self.rth_img[x,y,z] = rth
 
         # Save parametric images
-        self._save_img(alpha_img, 'ALPHA')
-        self._save_img(beta_img, 'BETA')
-        self._save_img(delay_img, 'DELAY')
-        self._save_img(cbf_img, 'CBF')
-        self._save_img(cbv_img, 'CBV')
-        self._save_img(mtt_img, 'MTT')
-        self._save_img(cth_img, 'CTH')
-        self._save_img(rth_img, 'RTH')
+        self._save_img(self.alpha_img, 'ALPHA')
+        self._save_img(self.beta_img, 'BETA')
+        self._save_img(self.delay_img, 'DELAY')
+        self._save_img(self.cbf_img, 'CBF')
+        self._save_img(self.cbv_img, 'CBV')
+        self._save_img(self.mtt_img, 'MTT')
+        self._save_img(self.cth_img, 'CTH')
+        self._save_img(self.rth_img, 'RTH')
 
     def smooth_data(self, smooth_mask: np.array):
         # Slice-wise smoothing of image
@@ -325,9 +337,7 @@ class DSC_process:
         smooth_mask = smooth_mask * self.mask
 
         for frame in range(self.conc_data.shape[-1]):
-            for z_slice in range(self.conc_data.shape[2]):
-                if z_slice == 12 and frame == 28:
-                    print('hey')
+            for z_slice in range(5,self.conc_data.shape[2]):
                 slice_data = self.conc_data[:,:,z_slice,frame]
 
                 # Step 1: Smooth all voxels with valid conc data
@@ -398,7 +408,7 @@ class DSC_process:
         t_bolus = t[self.baseline_end:] - t[self.baseline_end] # Time vector from baseline end
 
         # Initialize class for fitting the parametric function 
-        int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes) # Could this be move out? 
+        int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes, save_progression=True) # Could this be move out? 
 
         # Setup priors
         pC = np.diag([.1, 1, 10, .1]) 
@@ -432,6 +442,15 @@ class DSC_process:
                     selected_iteration = iteration - 1
 
             estimated_parameters[iteration] = Ep
+
+        # for i in range(len(int_dcmTR.y_progression)):
+        #     plt.cla()
+        #     plt.plot(int_dcmTR.y_progression[i, :], label=f'Fit {i}', color='orange')
+        #     plt.title(f'Progression Step {i+1}')
+        #     plt.legend()
+        #     plt.scatter(range(len(y)), y, label='Target Data')  # Replot scatter after clearing
+        #     plt.plot(y, label='Target Data')
+        #     plt.pause(0.2)
 
         # Calculate derived parameters
         cbv = np.trapz(fitted_values[selected_iteration])

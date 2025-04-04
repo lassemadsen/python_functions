@@ -6,7 +6,7 @@ from scipy.sparse import find
 from numpy.linalg import det
 
 class IntDcmTR:
-    def __init__(self, aif, sampling_factor, TimeBetweenVolumes):
+    def __init__(self, aif, sampling_factor, TimeBetweenVolumes, save_progression=False):
         self.aif = aif
         self.aif_upsampled_fn = interp1d(np.arange(len(self.aif)) * TimeBetweenVolumes, aif, kind='cubic', fill_value="extrapolate", bounds_error=False)
         self.aif_upsampled = None
@@ -18,6 +18,8 @@ class IntDcmTR:
         self.beta = None
         self.rf = None
         self.dt = 1 / self.sampling_factor * self.TimeBetweenVolumes 
+        self.save_progression = save_progression
+        self.y_progression = None
 
     def fit(self, t, p):
         """
@@ -50,20 +52,19 @@ class IntDcmTR:
             self.aif_upsampled[:delay_samples] = 0
 
         y = convolve(self.rf, self.aif_upsampled)*self.dt # why multiply by dt? 
-
         # Subsample
         y = y[0::self.sampling_factor][:len(t)]
+        
+        if self.save_progression:
+            if self.y_progression is None:
+                self.y_progression = y.reshape(1,-1)
+            else:
+                self.y_progression = np.concatenate([self.y_progression, y.reshape(1,-1)])
 
         return y
     
-def calc_CBV_by_integration(conc_data: np.array, TimeBetweenVolumes: float, aif_area: float, mask: np.array = None):
-    cbv_by_integration = np.zeros_like(conc_data[...,0])
-
-    for z in range(conc_data.shape[2]):
-        for y in range(conc_data.shape[1]):
-            for x in range(conc_data.shape[0]):
-                if mask is None or mask[x,y,z]:
-                    cbv_by_integration[x,y,z] = np.trapz(np.clip(conc_data[x, y, z, :], a_min=0, a_max=None), dx=TimeBetweenVolumes)/aif_area
+def calc_CBV_by_integration(data: np.array, TimeBetweenVolumes: float, aif_area: float):
+    cbv_by_integration = np.trapz(np.clip(data, a_min=0, a_max=None), dx=TimeBetweenVolumes)/aif_area
 
     return cbv_by_integration
 
