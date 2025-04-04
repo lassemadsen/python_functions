@@ -275,7 +275,7 @@ class DSC_process:
 
             # Find valid voxels
             voxels = np.argwhere(self.mask[:, :, z])
-            voxels = voxels[np.argsort(voxels[:, 1])] # Sort same as matlab
+            voxels = voxels[np.lexsort((voxels[:, 0], voxels[:, 1]))] # Sort same as matlab
 
             svd_res = [mySvd(self.conc_data[voxels[i,0], voxels[i,1], z, :], self.aif, self.baseline_end, TimeBetweenVolumes) for i in range(len(voxels))]
 
@@ -408,7 +408,8 @@ class DSC_process:
         t_bolus = t[self.baseline_end:] - t[self.baseline_end] # Time vector from baseline end
 
         # Initialize class for fitting the parametric function 
-        int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes, save_progression=True) # Could this be move out? 
+        int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes)
+        # int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes, save_progression=True) # Could this be move out? 
 
         # Setup priors
         pC = np.diag([.1, 1, 10, .1]) 
