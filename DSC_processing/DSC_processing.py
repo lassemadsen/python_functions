@@ -271,25 +271,20 @@ class DSC_process:
             if not np.any(self.mask[:, :, z]):
                 continue # No valid data in slice
             # Slice wise initial guess:
-            # Compute SVD only where mask is True and store results #TODO AIF matrix in mySvd does not have to be calculated each time. Could be more made more efficent, however it is still rather fast.     
-
             # Find valid voxels
             voxels = np.argwhere(self.mask[:, :, z])
             voxels = voxels[np.lexsort((voxels[:, 0], voxels[:, 1]))] # Sort same as matlab
 
-            svd_res = [mySvd(self.conc_data[voxels[i,0], voxels[i,1], z, :], self.aif, self.baseline_end, TimeBetweenVolumes) for i in range(len(voxels))]
-
-            svd_cbf, svd_delay, _, _ = map(np.array,zip(*svd_res))
+            # svd_res = [mySvd(self.conc_data[voxels[i,0], voxels[i,1], z, :], self.aif, self.baseline_end, TimeBetweenVolumes) for i in range(len(voxels))]
+            svd_cbf, svd_delay, svd_cbv, svd_rf  = mySvd(self.conc_data[voxels[:,0], voxels[:,1], z, :], self.aif, self.baseline_end, TimeBetweenVolumes)
 
             cbvbyC = np.array([calc_CBV_by_integration(self.conc_data[voxels[i,0], voxels[i,1], z, self.baseline_end:], TimeBetweenVolumes, aif_area) for i in range(len(voxels))])
 
             svd_mtt = np.array([cbvbyC[i]/svd_cbf[i] if svd_cbf[i] != 0 else 0 for i in range(len(voxels))])
 
             # Adjust initial paramters if they are beyond the limits
-            svd_delay[svd_delay == 0] = TimeBetweenVolumes/sampling_factor # Delay of 0 Will cause problems when log transforming paramters for optimization (log(0) = -Inf)
-            svd_delay = np.array([np.min([svd_delay[i], 5/(TimeBetweenVolumes/sampling_factor)]) for i in range(len(voxels))])
-
-
+            svd_delay[svd_delay == 0] = 1 # 1 sec or TimeBetweenVolumes/sampling_factor # Delay of 0 Will cause problems when log transforming paramters for optimization (log(0) = -Inf)
+            svd_delay = svd_delay/(TimeBetweenVolumes/sampling_factor) # For MATLAB compatability. Not sure if this is correct. Should be accounted for in IntDcmTR
             svd_mtt[svd_mtt <= 0] = 1
             svd_cbf[svd_cbf == 0] = np.min(svd_cbf[svd_cbf != 0])
 

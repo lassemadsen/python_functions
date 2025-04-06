@@ -33,8 +33,11 @@ class IntDcmTR:
         p = np.exp(p.ravel())
         cbf = p[0]
         alpha = p[1]
-        delay = round(p[2],6) # Round,6 to prevent small rounding errors when converting between log and exp
+        delay = p[2]
         beta = p[3] 
+
+        # Control minimum delay (only lager in very noisy voxels.)
+        delay = np.min([delay, 5/(self.TimeBetweenVolumes/self.sampling_factor)])
 
         t_upsampled = np.arange(len(t)*self.sampling_factor) * self.dt #np.linspace(0, t[-1], len(t)*self.sampling_factor)
 
@@ -45,11 +48,18 @@ class IntDcmTR:
             self.rf = self.cbf * (1 - gamma.cdf(t_upsampled, self.alpha, scale=self.beta)).ravel()
 
         if delay != self.delay:
+            self.delay = delay
             # Fit delay
-            self.delay = round(delay,5)
-            delay_samples = int(np.ceil(delay/self.dt))-1
-            self.aif_upsampled = self.aif_upsampled_fn(t_upsampled-self.delay).ravel() # np.concatenate([np.zeros(f).reshape(-1,1), self.aif(t-d)]).ravel()
-            self.aif_upsampled[:delay_samples] = 0
+            # self.delay = delay
+            # delay_samples = int(np.ceil(delay/self.dt))-1
+            # self.aif_upsampled = self.aif_upsampled_fn(t_upsampled-self.delay).ravel() # np.concatenate([np.zeros(f).reshape(-1,1), self.aif(t-d)]).ravel()
+            # self.aif_upsampled[:delay_samples] = 0
+
+            # MATLAB compatible, but I think it is wrong. Mixing up upsample times and dt.
+            d = np.mod(delay,1)
+            f = np.fix(delay).astype(int)
+            self.aif_upsampled = self.aif_upsampled_fn(t_upsampled-d*self.dt).ravel()
+            self.aif_upsampled = np.concatenate([np.zeros(f), self.aif_upsampled])
 
         y = convolve(self.rf, self.aif_upsampled)*self.dt # why multiply by dt? 
         # Subsample
@@ -88,12 +98,12 @@ def mySvd(conc_data, aif, baseline_end, TimeBetweenVolumes, threshold=0.2):
     invAIF = Vh.T @ S_inv @ U.T
 
     # Calculate the residue function 
-    rf = invAIF @ conc_data[baseline_end:].reshape(-1,1).ravel()
+    rf = invAIF @ conc_data[:,baseline_end:].T
 
     # Calculate parameters CBF, CBV and delay
-    cbf, max_sample = np.max(rf), np.argmax(rf)
+    cbf, max_sample = np.max(rf, axis=0), np.argmax(rf, axis=0)
     
-    cbv = np.trapz(rf, dx=TimeBetweenVolumes) # To get exaclty the same as in the MATLAB implementation 
+    cbv = np.trapz(rf, dx=TimeBetweenVolumes, axis=0)
     delay = max_sample * TimeBetweenVolumes
 
     return cbf, delay, cbv, rf
