@@ -8,6 +8,69 @@ from numpy.linalg import det
 class IntDcmTR:
     def __init__(self, aif, sampling_factor, TimeBetweenVolumes, save_progression=False):
         self.aif = aif
+        self.aif_upsampled_fn = interp1d(np.arange(len(self.aif)), aif, kind='cubic', fill_value="extrapolate", bounds_error=False)
+        self.aif_upsampled = None
+        self.sampling_factor = sampling_factor
+        self.TimeBetweenVolumes = TimeBetweenVolumes
+        self.cbf = None
+        self.delay = None
+        self.alpha = None
+        self.beta = None
+        self.rf = None
+        self.dt = 1 / self.sampling_factor * self.TimeBetweenVolumes 
+        self.save_progression = save_progression
+        self.y_progression = None
+
+    def fit(self, t, p):
+        """
+        t : Time
+        p : parameters of the model
+            p[0]: CBF (amplitude)
+            p[1]: Alpha
+            P[2]: Delay 
+            P[3]: Beta
+        """
+        p = np.exp(p.ravel())
+        cbf = p[0]
+        alpha = p[1]
+        delay = p[2]
+        beta = p[3]
+
+        t_upsampled = np.arange(len(t)*self.sampling_factor)
+
+        if alpha != self.alpha or beta != self.beta or cbf != self.cbf:
+            self.cbf = cbf
+            self.alpha = alpha
+            self.beta = beta
+            self.rf = self.cbf * (1 - gamma.cdf(t_upsampled*self.dt, self.alpha, scale=self.beta)).ravel()
+
+        if delay != self.delay:
+            self.delay = delay
+
+            # MATLAB compatible, but I think it is wrong. Mixing up upsample times and dt.
+            d = np.mod(delay,1)
+            f = np.fix(delay).astype(int)
+            self.aif_upsampled = self.aif_upsampled_fn((t_upsampled-d)/self.sampling_factor).ravel()
+            self.aif_upsampled = np.concatenate([np.zeros(f), self.aif_upsampled])
+
+        y = convolve(self.rf, self.aif_upsampled)*self.dt # why multiply by dt? 
+        # Subsample
+        y = y[0::self.sampling_factor][:len(t)]
+        
+        if self.save_progression:
+            if self.y_progression is None:
+                self.y_progression = y.reshape(1,-1)
+            else:
+                self.y_progression = np.concatenate([self.y_progression, y.reshape(1,-1)])
+
+        return y
+    
+class DSC_convolution_fitting:
+    """
+    Implementet from MATLAB IntDcmTR, but adjusted to optimize for python and correct delay fitting.
+    """
+    def __init__(self, aif, sampling_factor, TimeBetweenVolumes, save_progression=False):
+        self.aif = aif
         self.aif_upsampled_fn = interp1d(np.arange(len(self.aif)) * TimeBetweenVolumes, aif, kind='cubic', fill_value="extrapolate", bounds_error=False)
         self.aif_upsampled = None
         self.sampling_factor = sampling_factor
@@ -48,18 +111,11 @@ class IntDcmTR:
             self.rf = self.cbf * (1 - gamma.cdf(t_upsampled, self.alpha, scale=self.beta)).ravel()
 
         if delay != self.delay:
-            self.delay = delay
             # Fit delay
-            # self.delay = delay
-            # delay_samples = int(np.ceil(delay/self.dt))-1
-            # self.aif_upsampled = self.aif_upsampled_fn(t_upsampled-self.delay).ravel() # np.concatenate([np.zeros(f).reshape(-1,1), self.aif(t-d)]).ravel()
-            # self.aif_upsampled[:delay_samples] = 0
-
-            # MATLAB compatible, but I think it is wrong. Mixing up upsample times and dt.
-            d = np.mod(delay,1)
-            f = np.fix(delay).astype(int)
-            self.aif_upsampled = self.aif_upsampled_fn(t_upsampled-d*self.dt).ravel()
-            self.aif_upsampled = np.concatenate([np.zeros(f), self.aif_upsampled])
+            self.delay = delay
+            delay_samples = int(np.ceil(delay/self.dt))-1
+            self.aif_upsampled = self.aif_upsampled_fn(t_upsampled-self.delay).ravel() # np.concatenate([np.zeros(f).reshape(-1,1), self.aif(t-d)]).ravel()
+            self.aif_upsampled[:delay_samples] = 0
 
         y = convolve(self.rf, self.aif_upsampled)*self.dt # why multiply by dt? 
         # Subsample
@@ -72,7 +128,8 @@ class IntDcmTR:
                 self.y_progression = np.concatenate([self.y_progression, y.reshape(1,-1)])
 
         return y
-    
+
+
 def calc_CBV_by_integration(data: np.array, TimeBetweenVolumes: float, aif_area: float):
     cbv_by_integration = np.trapz(np.clip(data, a_min=0, a_max=None), dx=TimeBetweenVolumes)/aif_area
 

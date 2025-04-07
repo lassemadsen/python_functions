@@ -275,7 +275,6 @@ class DSC_process:
             voxels = np.argwhere(self.mask[:, :, z])
             voxels = voxels[np.lexsort((voxels[:, 0], voxels[:, 1]))] # Sort same as matlab
 
-            # svd_res = [mySvd(self.conc_data[voxels[i,0], voxels[i,1], z, :], self.aif, self.baseline_end, TimeBetweenVolumes) for i in range(len(voxels))]
             svd_cbf, svd_delay, svd_cbv, svd_rf  = mySvd(self.conc_data[voxels[:,0], voxels[:,1], z, :], self.aif, self.baseline_end, TimeBetweenVolumes)
 
             cbvbyC = np.array([calc_CBV_by_integration(self.conc_data[voxels[i,0], voxels[i,1], z, self.baseline_end:], TimeBetweenVolumes, aif_area) for i in range(len(voxels))])
@@ -284,16 +283,27 @@ class DSC_process:
 
             # Adjust initial paramters if they are beyond the limits
             svd_delay[svd_delay == 0] = 1 # 1 sec or TimeBetweenVolumes/sampling_factor # Delay of 0 Will cause problems when log transforming paramters for optimization (log(0) = -Inf)
-            svd_delay = svd_delay/(TimeBetweenVolumes/sampling_factor) # For MATLAB compatability. Not sure if this is correct. Should be accounted for in IntDcmTR
+
+            # For MATLAB compatability. A bit messy to upsample here. Should be done in fitting class
+            dt = 1 / sampling_factor * TimeBetweenVolumes 
+            svd_delay = svd_delay / dt
+            # Control minimum delay (only above this in very noisy voxels.)
+            svd_delay = np.minimum(svd_delay, 5/dt)
+
             svd_mtt[svd_mtt <= 0] = 1
             svd_cbf[svd_cbf == 0] = np.min(svd_cbf[svd_cbf != 0])
 
             p_slice = [np.log(np.array([svd_cbf[i], 1, svd_delay[i], svd_mtt[i]])) for i in range(self.mask[:, :, z].sum())]
 
             for i in tqdm(range(len(voxels)), desc='Voxel', leave=False):
-                x = voxels[i][0]
-                y = voxels[i][1]
+                x = voxels[i, 0]
+                y = voxels[i, 1]
                 voxel_data = self.conc_data[x,y,z]
+
+                if smooth_time:
+                    # Moving average
+                    window_size = 5
+                    voxel_data = np.convolve(voxel_data, np.ones(window_size)/window_size, mode='same')
 
                 cbv, cbf, alpha, beta, delay, mtt, cth, rth = self._calc_perfusion_voxel(voxel_data, t, p_slice[i], sampling_factor, TimeBetweenVolumes)
 
@@ -403,8 +413,8 @@ class DSC_process:
         t_bolus = t[self.baseline_end:] - t[self.baseline_end] # Time vector from baseline end
 
         # Initialize class for fitting the parametric function 
-        int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes)
-        # int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes, save_progression=True) # Could this be move out? 
+        # int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes)  # Could this be move out? 
+        int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes, save_progression=True)
 
         # Setup priors
         pC = np.diag([.1, 1, 10, .1]) 
@@ -439,14 +449,14 @@ class DSC_process:
 
             estimated_parameters[iteration] = Ep
 
-        # for i in range(len(int_dcmTR.y_progression)):
-        #     plt.cla()
-        #     plt.plot(int_dcmTR.y_progression[i, :], label=f'Fit {i}', color='orange')
-        #     plt.title(f'Progression Step {i+1}')
-        #     plt.legend()
-        #     plt.scatter(range(len(y)), y, label='Target Data')  # Replot scatter after clearing
-        #     plt.plot(y, label='Target Data')
-        #     plt.pause(0.2)
+        for i in range(len(int_dcmTR.y_progression)):
+            plt.cla()
+            plt.plot(int_dcmTR.y_progression[i, :], label=f'Fit {i}', color='orange')
+            plt.title(f'Progression Step {i+1}')
+            plt.legend()
+            plt.scatter(range(len(y)), y, label='Target Data')  # Replot scatter after clearing
+            plt.plot(y, label='Target Data')
+            plt.pause(0.01)
 
         # Calculate derived parameters
         cbv = np.trapz(fitted_values[selected_iteration])
