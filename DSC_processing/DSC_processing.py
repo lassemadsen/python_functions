@@ -228,6 +228,8 @@ class DSC_process:
         self.conc_data[np.isnan(self.conc_data)] = 0
         self.conc_data[np.isinf(self.conc_data)] = 0
 
+        # TODO Option to mask 5 and 95 percentiles of CBV? 
+
         self._qc_concentration()
 
     def aif_selection(self, aif_search_mask: str, gm_mask: str, n_aif: int = 10):
@@ -240,13 +242,12 @@ class DSC_process:
         self.aif_select = aif_selection(self, aif_search_mask.get_fdata(), gm_mask.get_fdata(), n_aif)
         self.aif_select.select_aif()
         self.aif = self.aif_select.final_aif
+        self.aif_area = np.trapz(self.aif, self.repetition_time)
 
         self._qc_aif_selection()
 
-    def calc_perfusion(self, sampling_factor:int = 8, aif_area:float = None, TimeBetweenVolumes:float = None):
+    def calc_perfusion(self, sampling_factor:int = 8, TimeBetweenVolumes:float = None):
         #TODO Calc TTP 
-        if aif_area is None:
-            aif_area = np.trapz(self.aif) * self.repetition_time # In MATLAB, the aif_area is read from the AIF info file. This is a bit different (not sure why) and may cause tiny differences in the results compared to MATLAB.
         if TimeBetweenVolumes is None:
             TimeBetweenVolumes = self.repetition_time
 
@@ -262,22 +263,18 @@ class DSC_process:
 
         t = np.arange(self.conc_data.shape[3]) * TimeBetweenVolumes # OBS: Should probably be repetition time, however this is different from TimeBetweenVolumes in MATLAB 1.56 vs. 1.563
 
-        # Mask 5 and 95 percentiles of CBV #TODO Should be done in concentration step
-        # self.mask[cbvbyC > np.percentile(cbvbyC[self.mask], 95)] = False 
-        # self.mask[cbvbyC < np.percentile(cbvbyC[self.mask], 5)] = False
-
         from tqdm import tqdm
         for z in tqdm(range(self.conc_data.shape[2]), desc="Slice"):
             if not np.any(self.mask[:, :, z]):
                 continue # No valid data in slice
-            # Slice wise initial guess:
+            # Slice-wise initial guess:
             # Find valid voxels
             voxels = np.argwhere(self.mask[:, :, z])
             voxels = voxels[np.lexsort((voxels[:, 0], voxels[:, 1]))] # Sort same as matlab
 
             svd_cbf, svd_delay, svd_cbv, svd_rf  = mySvd(self.conc_data[voxels[:,0], voxels[:,1], z, :], self.aif, self.baseline_end, TimeBetweenVolumes)
 
-            cbvbyC = np.array([calc_CBV_by_integration(self.conc_data[voxels[i,0], voxels[i,1], z, self.baseline_end:], TimeBetweenVolumes, aif_area) for i in range(len(voxels))])
+            cbvbyC = np.array([calc_CBV_by_integration(self.conc_data[voxels[i,0], voxels[i,1], z, self.baseline_end:], TimeBetweenVolumes, self.aif_area) for i in range(len(voxels))])
 
             svd_mtt = np.array([cbvbyC[i]/svd_cbf[i] if svd_cbf[i] != 0 else 0 for i in range(len(voxels))])
 
@@ -300,12 +297,7 @@ class DSC_process:
                 y = voxels[i, 1]
                 voxel_data = self.conc_data[x,y,z]
 
-                if smooth_time:
-                    # Moving average
-                    window_size = 5
-                    voxel_data = np.convolve(voxel_data, np.ones(window_size)/window_size, mode='same')
-
-                cbv, cbf, alpha, beta, delay, mtt, cth, rth = self._calc_perfusion_voxel(voxel_data, t, p_slice[i], sampling_factor, TimeBetweenVolumes)
+                cbv, cbf, alpha, beta, delay, mtt, cth, rth = self._calc_perfusion_voxel(voxel_data, t, p_slice[i], sampling_factor, TimeBetweenVolumes, show_fitting_progression=False)
 
                 self.alpha_img[x,y,z] = alpha
                 self.beta_img[x,y,z] = beta
@@ -353,7 +345,6 @@ class DSC_process:
                 count_valid = convolve(slice_mask, kernel, mode='constant', cval=0) * slice_mask
                 smoothed_slice = np.divide(smoothed_slice, count_valid, out=np.zeros_like(smoothed_slice), where=count_valid != 0)
                 self._zero_edge(smoothed_slice, edge_width)
-                # self.conc_data[:,:,z_slice, frame] = smoothed_slice
                 data_smoothed[:,:,z_slice, frame] = smoothed_slice
 
                 if smooth_mask is not None:
@@ -364,11 +355,9 @@ class DSC_process:
                     count_valid = convolve(slice_smoothing_mask, kernel, mode='constant', cval=0) * slice_smoothing_mask
                     smoothed_masked_slice = np.divide(smoothed_masked_slice, count_valid, out=np.zeros_like(smoothed_masked_slice), where=count_valid != 0)
 
-                    # self.conc_data[:,:,z_slice,frame][smooth_mask[:,:,z_slice] != 0] = smoothed_masked_slice[smooth_mask[:,:,z_slice] != 0]
                     data_smoothed[:,:,z_slice,frame][smooth_mask[:,:,z_slice] != 0] = smoothed_masked_slice[smooth_mask[:,:,z_slice] != 0]
 
                 # Set edges to zero
-                # self.conc_data[:,:,z_slice,frame] = self._zero_edge(self.conc_data[:,:,z_slice,frame], edge_width)
                 data_smoothed[:,:,z_slice,frame] = self._zero_edge(data_smoothed[:,:,z_slice,frame], edge_width)
                 self.mask[:,:,z_slice] = self._zero_edge(self.mask[:,:,z_slice], edge_width)
             
@@ -407,14 +396,13 @@ class DSC_process:
 
         return img_data
 
-    def _calc_perfusion_voxel(self, y: np.array, t: np.array, p: np.array, sampling_factor: int, TimeBetweenVolumes: float):
+    def _calc_perfusion_voxel(self, y: np.array, t: np.array, p: np.array, sampling_factor: int, TimeBetweenVolumes: float, show_fitting_progression=False):
         # Only use bolus passage in the remaining optimization
         y = y[self.baseline_end:]
         t_bolus = t[self.baseline_end:] - t[self.baseline_end] # Time vector from baseline end
 
         # Initialize class for fitting the parametric function 
-        # int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes)  # Could this be move out? 
-        int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes, save_progression=True)
+        int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes, save_progression=show_fitting_progression)
 
         # Setup priors
         pC = np.diag([.1, 1, 10, .1]) 
@@ -449,17 +437,18 @@ class DSC_process:
 
             estimated_parameters[iteration] = Ep
 
-        for i in range(len(int_dcmTR.y_progression)):
-            plt.cla()
-            plt.plot(int_dcmTR.y_progression[i, :], label=f'Fit {i}', color='orange')
-            plt.title(f'Progression Step {i+1}')
-            plt.legend()
-            plt.scatter(range(len(y)), y, label='Target Data')  # Replot scatter after clearing
-            plt.plot(y, label='Target Data')
-            plt.pause(0.01)
+        if show_fitting_progression:
+            for i in range(len(int_dcmTR.y_progression)):
+                plt.cla()
+                plt.plot(int_dcmTR.y_progression[i, :], label=f'Fit {i}', color='orange')
+                plt.title(f'Progression Step {i+1}')
+                plt.legend()
+                plt.scatter(range(len(y)), y, label='Target Data')  # Replot scatter after clearing
+                plt.plot(y, label='Target Data')
+                plt.pause(0.01)
 
         # Calculate derived parameters
-        cbv = np.trapz(fitted_values[selected_iteration])
+        cbv = np.trapz(fitted_values[selected_iteration]) * TimeBetweenVolumes/self.aif_area
         cbf = np.exp(estimated_parameters[selected_iteration][0]) # Should be multiplied by conc_area to normalize
         alpha = np.exp(estimated_parameters[selected_iteration][1])
         beta = np.exp(estimated_parameters[selected_iteration][3])

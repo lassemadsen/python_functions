@@ -51,13 +51,6 @@ class aif_selection:
         self.df_aif_metrics = self.df_aif_metrics.iloc[np.where(~(self.aifSearchVoxels_conc[self.df_aif_metrics.index] < self.noise_level_conc).any(axis=1))[0]]
 
         # Perform AIF selection based on the criteria below
-        # criteria = [
-        #     {'column': 'auc', 'percentile': 'mean', 'operation': '>'},
-        #     {'column': 'bl_roughness', 'percentile': 90, 'operation': '<'},
-        #     {'column': 'TTP', 'percentile': 25, 'operation': '<'},
-        #     {'column': 'fwhm', 'percentile': 'mean', 'operation': '<'},
-        #     {'column': 'up_area', 'percentile': 'mean', 'operation': '>'},
-        # ]
         criteria = [
             {'column': 'auc', 'percentile': 50, 'operation': '>'},
             {'column': 'bl_roughness', 'percentile': 90, 'operation': '<'},
