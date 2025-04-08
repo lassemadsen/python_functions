@@ -334,7 +334,7 @@ class DSC_process:
         smooth_mask = smooth_mask * self.mask
 
         for frame in range(self.conc_data.shape[-1]):
-            for z_slice in range(5,self.conc_data.shape[2]):
+            for z_slice in range(self.conc_data.shape[2]):
                 slice_data = self.conc_data[:,:,z_slice,frame]
 
                 # Step 1: Smooth all voxels with valid conc data
@@ -413,9 +413,10 @@ class DSC_process:
         estimated_parameters = {}
         fitted_values = {}
         selected_iteration = None
+        p_iteration = np.copy(p)
 
         for iteration in range(n_iterations):
-            Ep, Cp, S, F = spm_nlso_gn_no_graphic(int_dcmTR.fit, p, pC, y, t_bolus)
+            Ep, Cp, S, F = spm_nlso_gn_no_graphic(int_dcmTR.fit, p_iteration, pC, y, t_bolus)
             fitted_values[iteration] = int_dcmTR.fit(t_bolus, Ep)
 
             sumsq = np.sum(np.power(y-fitted_values[iteration],2))
@@ -423,10 +424,10 @@ class DSC_process:
 
             if iteration == 0:
                 # Update initial guessing paramters and see if this improves the fitting.
-                p[0] = Ep[0]
-                p[1] = 0
-                p[2] = Ep[2]
-                p[3] = Ep[1] + Ep[3]
+                p_iteration[0] = Ep[0]
+                p_iteration[1] = 0
+                p_iteration[2] = Ep[2]
+                p_iteration[3] = Ep[1] + Ep[3]
                 selected_iteration = iteration
             else:
                 if rmse[iteration] > 0.01 and not (rmse[iteration] > rmse[iteration - 1]) and (np.abs(rmse[iteration] - rmse[iteration -1]) / rmse[iteration -1]) > 0.10:
@@ -474,6 +475,13 @@ class DSC_process:
         # TODO Check header fits with DSC data
 
         self.aif_seach_mask = mask.get_fdata()
+    
+    def set_mask(self, mask: str):
+        mask = nib.load(mask)
+        mask_hdr = mask.header
+        # TODO Check header fits with DSC data
+
+        self.mask = mask.get_fdata()
 
     # QC methods
     def _qc_baseline_detection(self, truncated: bool = False):
