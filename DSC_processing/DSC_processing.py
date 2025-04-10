@@ -318,15 +318,17 @@ class DSC_process:
         self._save_img(self.cth_img, 'CTH')
         self._save_img(self.rth_img, 'RTH')
 
-    def smooth_data(self, smooth_mask: np.array):
+    def smooth_data(self, smooth_mask: np.array, kernel_type: str = 'gaussian', kernel_size: int = 3):
         # Slice-wise smoothing of image
         # TODO Options (gaussian/uniform, filter size)
+        if kernel_type == 'gaussian':
+            fwhm = 1.5 # From matlab. Not sure why this is selected. Half a voxel? Should be based on voxel size
+            kernel = self._get_kernel(fwhm, kernel_size)
+            # sigma = fwhm / np.sqrt(8 * np.log(2))
+            # kernel = gaussian_filter((np.arange(9) == 4).reshape(3,3).astype(float), sigma)
+        elif kernel_type == 'uniform':
+            kernel = np.ones((kernel_size, kernel_size))
 
-        # conc_data_smoothed = np.zeros_like(self.conc_data)
-        fwhm = 1.5 # From matlab. Not sure why this is selected. Half a voxel? Should be based on voxel size
-        # sigma = fwhm / np.sqrt(8 * np.log(2))
-        # kernel = gaussian_filter((np.arange(9) == 4).reshape(3,3).astype(float), sigma)
-        kernel = self._get_kernel(fwhm, 3)
         edge_width = int((kernel.shape[0]-1)/2)
 
         data_smoothed = np.zeros_like(self.conc_data)
@@ -453,14 +455,13 @@ class DSC_process:
         cbf = np.exp(estimated_parameters[selected_iteration][0]) # Should be multiplied by conc_area to normalize
         alpha = np.exp(estimated_parameters[selected_iteration][1])
         beta = np.exp(estimated_parameters[selected_iteration][3])
-        delay = np.exp(estimated_parameters[selected_iteration][2])
+        delay = np.exp(estimated_parameters[selected_iteration][2]) * (TimeBetweenVolumes/sampling_factor)
         mtt = alpha * beta
-        cth = np.sqrt(alpha) * beta #(alpha**beta) * beta
+        cth = np.sqrt(alpha) * beta
         rth = cth/mtt
         # TODO limits on MTT and CTH?
 
         return cbv, cbf, alpha, beta, delay, mtt, cth, rth
-
 
     # SET methods
     def set_baseline_end(self, baseline_end: int):

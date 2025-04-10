@@ -36,6 +36,9 @@ class IntDcmTR:
         delay = p[2]
         beta = p[3]
 
+        if delay > 1e3:
+            delay = 1e3
+
         t_upsampled = np.arange(len(t)*self.sampling_factor)
 
         if alpha != self.alpha or beta != self.beta or cbf != self.cbf:
