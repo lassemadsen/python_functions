@@ -1,4 +1,6 @@
 import numpy as np
+import os
+import pickle
 import nibabel as nib
 import matplotlib.pyplot as plt
 import ants
@@ -9,7 +11,7 @@ from scipy.ndimage import convolve, gaussian_filter
 
 class DSC_process:
 
-    def __init__(self, sub_id: str, tp: str, img_file: str, outdir:str, qc_dir: str):
+    def __init__(self, sub_id: str, tp: str, img_file: str, info_dict: dict, outdir:str, qc_dir: str):
         self.sub_id = sub_id
         self.tp = tp
         self.img_file = img_file
@@ -18,8 +20,10 @@ class DSC_process:
         self.img = nib.load(img_file)
         self.img_hdr = self.img.header
         self.img_data = self.img.get_fdata()
-        self.repetition_time = self.img_hdr.get_zooms()[-1] # TR in seconds
-        self.echo_time = float(str(self.img_hdr['descrip']).split(';')[0].split('TE=')[-1]) * 1e-3 # TE in seconds
+        self.info = info_dict
+
+        self.repetition_time = self.info['TR']
+        self.echo_time = self.info['TE']
         self.baseline_start = 0 # Can this be determined in a good way?
 
         # Parameters defined in function calls
@@ -86,7 +90,7 @@ class DSC_process:
         #TODO Update header information
         self._qc_baseline_detection(truncated=True)
     
-    def slice_time_correction(self, sliceorder):
+    def slice_time_correction(self):
         """
         Perform slice time correction. Cleaned version
         """
@@ -95,6 +99,7 @@ class DSC_process:
             return
 
         TimeBetweenVolumes = self.repetition_time
+        sliceorder = self.info['acqorder']
 
         nx, ny, nslices, nframes = self.img_data.shape
 
@@ -508,7 +513,7 @@ class DSC_process:
     def _qc_baseline_detection(self, truncated: bool = False):
         mean_signal = np.mean(self.img_data[self.mask],axis=0)
         plt.figure()
-        plt.plot(range(len(mean_signal))*self.repetition_time, mean_signal)
+        plt.plot(np.arange(len(mean_signal))*self.repetition_time, mean_signal)
         plt.scatter(self.baseline_end*self.repetition_time, mean_signal[self.baseline_end])
         plt.ylabel('Average signal intensity')
         plt.xlabel('Time (s)')
@@ -542,7 +547,7 @@ class DSC_process:
     def _qc_concentration(self):
         mean_conc = np.mean(self.conc_data[self.mask],axis=0)
         plt.figure()
-        plt.plot(range(len(mean_conc))*self.repetition_time, mean_conc)
+        plt.plot(np.arange(len(mean_conc))*self.repetition_time, mean_conc)
         plt.scatter(self.baseline_end*self.repetition_time, mean_conc[self.baseline_end])
         plt.title(f'Average concentration curve: {self.sub_id} - {self.tp}')
         plt.ylabel('Concentration')
@@ -578,8 +583,8 @@ class DSC_process:
                 label_orig = None
                 label_corrected = None
 
-            ax[0].plot(self.repetition_time*range(len(avg_signal_pre_correction)), avg_signal_pre_correction, 'r', label=label_orig, alpha=0.8)
-            ax[0].plot(self.repetition_time*range(len(avg_signal_post_correction)), avg_signal_post_correction, 'b', label=label_corrected, alpha=0.8)
+            ax[0].plot(self.repetition_time*np.arange(len(avg_signal_pre_correction)), avg_signal_pre_correction, 'r', label=label_orig, alpha=0.8)
+            ax[0].plot(self.repetition_time*np.arange(len(avg_signal_post_correction)), avg_signal_post_correction, 'b', label=label_corrected, alpha=0.8)
             
 
         ax[0].set_title('Average slice curves')
@@ -611,9 +616,57 @@ class DSC_process:
         img_to_save = nib.Nifti1Image(data, self.img.affine, self.img_hdr)
         nib.save(img_to_save, outdir + '/0001.nii')
 
-def get_acqorder(dcm_file):
+def convert_pwi(filtered_serie: dict, outdir: str, clobber: bool = False):
+    from glob import glob
+    import dicom2nifti
+
+    sub_id = filtered_serie['subject'].zfill(4)
+    tp = filtered_serie['study']
+    modality = filtered_serie['modality']
+    series_type = filtered_serie['type']
+    data_dir_f = f'{outdir}/data/{sub_id}/{tp}/{modality}/{series_type}/NATSPACE'
+    info_dir_f = f'{outdir}/info/{sub_id}/{tp}/{modality}/{series_type}'
+    
+    Path(data_dir_f).mkdir(parents=True, exist_ok=True)
+    Path(info_dir_f).mkdir(parents=True, exist_ok=True)
+
+    out_file = f'{data_dir_f}/0001.nii'
+
+    if not os.path.isfile(out_file) or clobber:
+
+        # CONVERT IMG DATA
+        dicom2nifti.convert_directory('/Volumes' + filtered_serie['path'], data_dir_f, compression=False)
+
+        # Rename output file
+        out_file_temp = glob(data_dir_f + '/*.nii')[0]
+        os.rename(out_file_temp, out_file)
+    else:
+        print(f'{out_file} exits. Use clobber to overwrite.')
+
+    # INFO
+    dcm_file = f'/Volumes/{filtered_serie["path"]}/{filtered_serie["files"][0]}'
+    info = get_info(dcm_file)
+
+    # Save
+    with open(f'{info_dir_f}/info.pkl', 'wb') as info_file:
+        pickle.dump(info, info_file)
+
+    return out_file, info
+
+
+def get_info(dcm_file):
     import pydicom
     ds = pydicom.dcmread(dcm_file)
+
+    info = {}
+
+    # --- Echo time ---
+    echoTime = ds.EchoTime
+
+    # --- Repetition time ---
+    repetitionTime = ds.RepetitionTime
+
+    # --- Aquisition times ---
     for element in ds:
         if "MosaicRefAcqTimes" in element.name:
             acqtime = element.value
@@ -627,4 +680,8 @@ def get_acqorder(dcm_file):
     for i, time in enumerate(uniq_acqtime):
         acqorder[np.array(acqtime) == time] = uniq_acqorder[i]
     
-    return acqorder
+    # --- Return ---
+    info['TE'] = echoTime * 1e-3 # In seconds
+    info['TR'] = repetitionTime * 1e-3 # In seconds
+    info['acqorder'] = acqorder
+    return info
