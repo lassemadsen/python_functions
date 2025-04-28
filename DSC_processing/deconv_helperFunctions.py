@@ -20,6 +20,7 @@ class IntDcmTR:
         self.dt = 1 / self.sampling_factor * self.TimeBetweenVolumes 
         self.save_progression = save_progression
         self.y_progression = None
+        self.rf_progression = None
 
     def fit(self, t, p):
         """
@@ -63,8 +64,11 @@ class IntDcmTR:
         if self.save_progression:
             if self.y_progression is None:
                 self.y_progression = y.reshape(1,-1)
+                self.rf_progression = self.rf[0::self.sampling_factor][:len(t)].reshape(1,-1)
+                
             else:
                 self.y_progression = np.concatenate([self.y_progression, y.reshape(1,-1)])
+                self.rf_progression = np.concatenate([self.rf_progression, self.rf[0::self.sampling_factor][:len(t)].reshape(1,-1)])
 
         return y
     
@@ -86,6 +90,7 @@ class DSC_convolution_fitting:
         self.dt = 1 / self.sampling_factor * self.TimeBetweenVolumes 
         self.save_progression = save_progression
         self.y_progression = None
+        self.rf_progression = None
 
     def fit(self, t, p):
         """
@@ -127,8 +132,11 @@ class DSC_convolution_fitting:
         if self.save_progression:
             if self.y_progression is None:
                 self.y_progression = y.reshape(1,-1)
+                self.rf_progression = self.rf[0::self.sampling_factor][:len(t)].reshape(-1,1)
+                
             else:
                 self.y_progression = np.concatenate([self.y_progression, y.reshape(1,-1)])
+                self.rf_progression = np.concatenate([self.rf_progression, self.rf[0::self.sampling_factor][:len(t)].reshape(-1,1)])
 
         return y
 
