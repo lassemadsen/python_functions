@@ -31,6 +31,9 @@ class DSC_process:
         self.calc_mean_image()
         self.mask = np.ones_like(self.img_data_mean).astype(bool)
 
+        # Debugging parameters
+        self.show_fitting_progression = False # If set to true, the deconvolution fitting will be shown for each voxel. 
+
         # Mask image by default? 
         #self.slice_time_correction()
         # self.mask_image()
@@ -290,14 +293,14 @@ class DSC_process:
             svd_mtt[svd_mtt <= 0] = 1
             svd_cbf[svd_cbf == 0] = np.min(svd_cbf[svd_cbf != 0])
 
-            p_slice = [np.log(np.array([svd_cbf[i], 1, svd_delay[i], svd_mtt[i]])) for i in range(self.mask[:, :, z].sum())]
+            p_slice = [np.log(np.array([svd_cbf[i], 1, svd_delay[i], svd_mtt[i]])) for i in range(int(self.mask[:, :, z].sum()))]
 
             for i in tqdm(range(len(voxels)), desc='Voxel', leave=False):
                 x = voxels[i, 0]
                 y = voxels[i, 1]
                 voxel_data = self.conc_data[x,y,z]
 
-                cbv, cbf, alpha, beta, delay, mtt, cth, rth = self._calc_perfusion_voxel(voxel_data, t, p_slice[i], sampling_factor, TimeBetweenVolumes, show_fitting_progression=False)
+                cbv, cbf, alpha, beta, delay, mtt, cth, rth = self._calc_perfusion_voxel(voxel_data, t, p_slice[i], sampling_factor, TimeBetweenVolumes)
 
                 self.alpha_img[x,y,z] = alpha
                 self.beta_img[x,y,z] = beta
@@ -398,13 +401,13 @@ class DSC_process:
 
         return img_data
 
-    def _calc_perfusion_voxel(self, y: np.array, t: np.array, p: np.array, sampling_factor: int, TimeBetweenVolumes: float, show_fitting_progression=False):
+    def _calc_perfusion_voxel(self, y: np.array, t: np.array, p: np.array, sampling_factor: int, TimeBetweenVolumes: float):
         # Only use bolus passage in the remaining optimization
         y = y[self.baseline_end:]
         t_bolus = t[self.baseline_end:] - t[self.baseline_end] # Time vector from baseline end
 
         # Initialize class for fitting the parametric function 
-        int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes, save_progression=show_fitting_progression)
+        int_dcmTR = IntDcmTR(self.aif[self.baseline_end:], sampling_factor, TimeBetweenVolumes, save_progression=self.show_fitting_progression)
 
         # Setup priors
         pC = np.diag([.1, 1, 10, .1]) 
@@ -440,14 +443,31 @@ class DSC_process:
 
             estimated_parameters[iteration] = Ep
 
-        if show_fitting_progression:
+        if self.show_fitting_progression:
+            _, axs = plt.subplots(3, 1, figsize=(8, 6))  # 2 rows, 1 column
+
+            axs[2].plot(int_dcmTR.aif, label='AIF', color='green')
+            axs[2].set_title('AIF')
+            axs[2].legend()
+
             for i in range(len(int_dcmTR.y_progression)):
-                plt.cla()
-                plt.plot(int_dcmTR.y_progression[i, :], label=f'Fit {i}', color='orange')
-                plt.title(f'Progression Step {i+1}')
-                plt.legend()
-                plt.scatter(range(len(y)), y, label='Target Data')  # Replot scatter after clearing
-                plt.plot(y, label='Target Data')
+                axs[0].cla()
+                axs[1].cla()
+
+                # Top plot: Fit vs Target
+                axs[0].plot(int_dcmTR.y_progression[i, :], label=f'Fit {i}', color='orange')
+                axs[0].scatter(range(len(y)), y, label='Target Data', color='blue')
+                axs[0].plot(y, label='Target Curve', color='blue', linestyle='--')
+                axs[0].set_title(f'Progression Step {i+1}')
+                axs[0].legend()
+                
+                # Bottom plot: Residuals (or whatever curve you want to show)
+                residual = y - int_dcmTR.y_progression[i, :]
+                axs[1].plot(residual, label='Residual', color='red')
+                axs[1].set_title('Residuals')
+                axs[1].legend()
+
+                plt.tight_layout()
                 plt.pause(0.01)
 
         # Calculate derived parameters
@@ -591,20 +611,20 @@ class DSC_process:
         img_to_save = nib.Nifti1Image(data, self.img.affine, self.img_hdr)
         nib.save(img_to_save, outdir + '/0001.nii')
 
-    def _get_acqorder(self, dcm_file):
-        import pydicom
-        ds = pydicom.dcmread(dcm_file)
-        for element in ds:
-            if "MosaicRefAcqTimes" in element.name:
-                acqtime = element.value
+def get_acqorder(dcm_file):
+    import pydicom
+    ds = pydicom.dcmread(dcm_file)
+    for element in ds:
+        if "MosaicRefAcqTimes" in element.name:
+            acqtime = element.value
 
-        acqorder = np.argsort(acqtime)
+    acqorder = np.argsort(acqtime)
 
-        uniq_acqtime = list(dict.fromkeys(acqtime))
+    uniq_acqtime = list(dict.fromkeys(acqtime))
 
-        _, uniq_acqorder = np.unique(uniq_acqtime, return_index=True)
+    _, uniq_acqorder = np.unique(uniq_acqtime, return_index=True)
 
-        for i, time in enumerate(uniq_acqtime):
-            acqorder[np.array(acqtime) == time] = uniq_acqorder[i]
-        
-        return acqorder
+    for i, time in enumerate(uniq_acqtime):
+        acqorder[np.array(acqtime) == time] = uniq_acqorder[i]
+    
+    return acqorder
