@@ -483,8 +483,13 @@ class DSC_process:
         delay = np.exp(estimated_parameters[selected_iteration][2]) * (TimeBetweenVolumes/sampling_factor)
         mtt = alpha * beta
         cth = np.sqrt(alpha) * beta
-        rth = cth/mtt
-        # TODO limits on MTT and CTH?
+        rth = [cth/mtt if alpha > 0 else 0][0]# Same as np.power(alpha, -0.5)
+        
+        # Set limits on parameters
+        cbv = np.clip(cbv, a_min=0, a_max=None)
+        cbf = np.clip(cbf, a_min=0, a_max=None)
+        mtt = np.clip(mtt, a_min=0, a_max=40)
+        cth = np.clip(cth, a_min=0, a_max=1000) # 1000 is way too high.. But this is the same as matlab 
 
         return cbv, cbf, alpha, beta, delay, mtt, cth, rth
 
