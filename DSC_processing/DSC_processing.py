@@ -11,7 +11,7 @@ from scipy.ndimage import convolve, gaussian_filter
 
 class DSC_process:
 
-    def __init__(self, sub_id: str, tp: str, pwi_type: str, img_file: str, info_dict: dict, outdir:str, qc_dir: str):
+    def __init__(self, sub_id: str, tp: str, pwi_type: str, img_file: str, info_dict: dict, outdir: str, qc_dir: str):
         self.sub_id = sub_id
         self.tp = tp
         self.pwi_type = pwi_type
@@ -335,7 +335,15 @@ class DSC_process:
     def smooth_data(self, smooth_mask: str, kernel_type: str = 'gaussian', kernel_size: int = 3):
         # Slice-wise smoothing of image
         # TODO Options (gaussian/uniform, filter size)
-        smooth_mask = nib.load(smooth_mask)
+        if isinstance(smooth_mask, str):
+            smooth_mask = nib.load(smooth_mask).get_fdata()
+        elif isinstance(smooth_mask, np.ndarray):
+            pass # TODO how to check header?
+        elif smooth_mask is None:
+            smooth_mask = np.zeros_like(self.img_data_mean)
+        else: 
+            print(f'Error. Smooth mask should be string, np.array or None. Got {type(smooth_mask)}.')
+
         if kernel_type == 'gaussian':
             fwhm = 1.5 # From matlab. Not sure why this is selected. Half a voxel? Should be based on voxel size
             kernel = self._get_kernel(fwhm, kernel_size)
@@ -348,7 +356,7 @@ class DSC_process:
 
         data_smoothed = np.zeros_like(self.conc_data)
 
-        smooth_mask = smooth_mask.get_fdata() * self.mask
+        smooth_mask = smooth_mask * self.mask
 
         for frame in range(self.conc_data.shape[-1]):
             for z_slice in range(self.conc_data.shape[2]):
