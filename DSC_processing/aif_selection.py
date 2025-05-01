@@ -73,7 +73,8 @@ class aif_selection:
         self.final_aif_indices = self.df_aif_metrics.iloc[self.aif_indices].sort_values(by='M', ascending=False).index[:self.n_aif]
 
         # Calculate final AIF as the median of the n_aif (e.g. 10) best AIF curves (based on M)
-        self.final_aif = np.mean(self.aifSearchVoxels_conc[self.final_aif_indices], axis=0)
+        self.final_aifs = self.aifSearchVoxels_conc[self.final_aif_indices]
+        self.final_aif = np.mean(self.final_aif_voxels, axis=0)
         self.final_aif_signal = np.mean(self.aifSearchVoxels_signal[self.final_aif_indices], axis=0)
 
     def get_AIF_metrics(self, voxel_signal, gm_peak_idx, sec_pass_gm):

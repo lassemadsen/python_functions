@@ -244,9 +244,10 @@ class DSC_process:
         self._qc_concentration()
 
     def aif_selection(self, aif_search_mask: str, gm_mask: str, n_aif: int = 10):
+
         aif_search_mask = nib.load(aif_search_mask)
         gm_mask = nib.load(gm_mask)
-
+        
         # TODO Check header information between aif_search_mask, gm_mask and self.img fits (i.e. dimensions, steps, location etc.)
 
         from aif_selection import aif_selection
@@ -254,6 +255,8 @@ class DSC_process:
         self.aif_select.select_aif()
         self.aif = self.aif_select.final_aif
         self.aif_area = np.trapz(self.aif, self.repetition_time)
+
+        self.info['AIF'] = {'AIFs' : self.aif_select.aif, 'AIF': self.aif_select.aif, 'AIF_area': self.aif_area}
 
         self._qc_aif_selection()
 
@@ -320,18 +323,19 @@ class DSC_process:
                 self.rth_img[x,y,z] = rth
 
         # Save parametric images
-        self._save_img(self.alpha_img, f'{pwi_type}_ALPHA')
-        self._save_img(self.beta_img, f'{pwi_type}_BETA')
-        self._save_img(self.delay_img, f'{pwi_type}_DELAY')
-        self._save_img(self.cbf_img, f'{pwi_type}_CBF')
-        self._save_img(self.cbv_img, f'{pwi_type}_CBV')
-        self._save_img(self.mtt_img, f'{pwi_type}_MTT')
-        self._save_img(self.cth_img, f'{pwi_type}_CTH')
-        self._save_img(self.rth_img, f'{pwi_type}_RTH')
+        self._save_img(self.alpha_img, f'{self.pwi_type}_ALPHA')
+        self._save_img(self.beta_img, f'{self.pwi_type}_BETA')
+        self._save_img(self.delay_img, f'{self.pwi_type}_DELAY')
+        self._save_img(self.cbf_img, f'{self.pwi_type}_CBF')
+        self._save_img(self.cbv_img, f'{self.pwi_type}_CBV')
+        self._save_img(self.mtt_img, f'{self.pwi_type}_MTT')
+        self._save_img(self.cth_img, f'{self.pwi_type}_CTH')
+        self._save_img(self.rth_img, f'{self.pwi_type}_RTH')
 
-    def smooth_data(self, smooth_mask: np.array, kernel_type: str = 'gaussian', kernel_size: int = 3):
+    def smooth_data(self, smooth_mask: str, kernel_type: str = 'gaussian', kernel_size: int = 3):
         # Slice-wise smoothing of image
         # TODO Options (gaussian/uniform, filter size)
+        smooth_mask = nib.load(smooth_mask)
         if kernel_type == 'gaussian':
             fwhm = 1.5 # From matlab. Not sure why this is selected. Half a voxel? Should be based on voxel size
             kernel = self._get_kernel(fwhm, kernel_size)
@@ -344,7 +348,7 @@ class DSC_process:
 
         data_smoothed = np.zeros_like(self.conc_data)
 
-        smooth_mask = smooth_mask * self.mask
+        smooth_mask = smooth_mask.get_fdata() * self.mask
 
         for frame in range(self.conc_data.shape[-1]):
             for z_slice in range(self.conc_data.shape[2]):
@@ -550,7 +554,6 @@ class DSC_process:
         m_post_mc = skimage.util.montage([dif_images_post_mc[:,:,slice_number,i] for i in range(dif_images_post_mc.shape[3])], grid_shape=(np.ceil(dif_images_post_mc.shape[3]/n_cols), n_cols))
         
         fig, axs = plt.subplots(1, 2, figsize=(16, 9))
-        # plt.figure()
         axs[0].imshow(m_pre_mc, cmap='gray')
         axs[0].axis('off')
         axs[0].set_title('After motion correction')
@@ -629,7 +632,7 @@ class DSC_process:
         #TODO Maybe track progression of analysis
         #TODO should header be different? 
 
-        outdir = f'{self.outdir}/{name}/NATPACE'
+        outdir = f'{self.outdir}/{name}/NATSPACE'
         Path(outdir).mkdir(exist_ok=True, parents=True)
 
         img_to_save = nib.Nifti1Image(data, self.img.affine, self.img_hdr)
@@ -715,9 +718,11 @@ def do_DSC_processing(parrent_outdir, stormdb_pwi_serie, t1_file, t1_mask_dir):
     img_file, info = convert_pwi(stormdb_pwi_serie, parrent_outdir)
 
     qc_dir = f'{parrent_outdir}/QC_figures/{sub_id}/{tp}/{pwi_type}'
-    outdir = f'{parrent_outdir}/data/{sub_id}/{tp}/MR'
+    outdir_data = f'{parrent_outdir}/data/{sub_id}/{tp}/MR'
+    outdir_info = f'{parrent_outdir}/info/{sub_id}/{tp}/MR'
+    outdir_masks = f'{parrent_outdir}/masks/{sub_id}/{tp}/MR'
 
-    proc = DSC_process(sub_id, tp, pwi_type, img_file, info, outdir, qc_dir)
+    proc = DSC_process(sub_id, tp, pwi_type, img_file, info, outdir_data, qc_dir)
 
     # Preprocess DSC images
     proc.slice_time_correction()
@@ -731,15 +736,37 @@ def do_DSC_processing(parrent_outdir, stormdb_pwi_serie, t1_file, t1_mask_dir):
     dsc_mean = ants.image_read(f'{proc.outdir}/{pwi_type}MEAN/NATSPACE/0001.nii')
     t1 = ants.image_read(t1_file)
 
-    mytx = ants.registration(dsc_mean, t1, type_of_transform = 'SyN')
+    transform = ants.registration(dsc_mean, t1, type_of_transform = 'SyN')
+    # ants.write_transform(transform['fwdtransforms'], f'{outdir_info}/t1_{pwi_type}MEAN_transform')
 
-    t1_resampled = ants.apply_transforms(fixed=dsc_mean, moving=t1, transformlist=mytx['fwdtransforms'])
+    t1_resampled = ants.apply_transforms(fixed=dsc_mean, moving=t1, transformlist=transform['fwdtransforms'])
+    Path(f'{proc.outdir}/T1/{pwi_type}SPACE').mkdir(parents=True, exist_ok=True)
     ants.image_write(t1_resampled, f'{proc.outdir}/T1/{pwi_type}SPACE/0001.nii')
 
+    for mask_file in ['struc_gm.nii', 'struc_wm.nii', 'AIFsearchMask.nii']:
+        mask = ants.image_read(f'{t1_mask_dir}/{mask_file}')
 
-    proc.smooth_data(smooth_mask)
-    proc.aif_selection(aif_search_mask)
+        interpolator = 'nearestNeighbor'
+
+        mask_resampled = ants.apply_transforms(fixed=dsc_mean, moving=mask, transformlist=transform['fwdtransforms'], interpolator=interpolator)
+
+        Path(f'{outdir_masks}/T1/{pwi_type}SPACE').mkdir(parents=True, exist_ok=True)
+
+        ants.image_write(mask_resampled, f'{outdir_masks}/T1/{pwi_type}SPACE/{mask_file}')
+    
+    # Create smooth mask
+    gm_mask_file = f'{outdir_masks}/T1/{pwi_type}SPACE/struc_gm.nii'
+    wm_mask_file = f'{outdir_masks}/T1/{pwi_type}SPACE/struc_wm.nii'
+    gm_mask = nib.load(gm_mask_file)
+    wm_mask = nib.load(wm_mask_file)
+    smooth_mask = (gm_mask.get_fdata()) + (wm_mask.get_fdata())
+
+    smooth_mask_file = f'{outdir_masks}/T1/{pwi_type}SPACE/smooth_mask.nii'
+    smooth_mask_to_save = nib.Nifti1Image(smooth_mask, gm_mask.affine, gm_mask.header)
+    nib.save(smooth_mask_to_save, smooth_mask_file)
+
+    aif_search_mask_file = f'{outdir_masks}/T1/{pwi_type}SPACE/AIFsearchMask.nii'
+
+    proc.smooth_data(smooth_mask_file)
+    proc.aif_selection(aif_search_mask_file, gm_mask_file)
     proc.calc_perfusion()
-
-
-    pass
