@@ -11,9 +11,10 @@ from scipy.ndimage import convolve, gaussian_filter
 
 class DSC_process:
 
-    def __init__(self, sub_id: str, tp: str, img_file: str, info_dict: dict, outdir:str, qc_dir: str):
+    def __init__(self, sub_id: str, tp: str, pwi_type: str, img_file: str, info_dict: dict, outdir:str, qc_dir: str):
         self.sub_id = sub_id
         self.tp = tp
+        self.pwi_type = pwi_type
         self.img_file = img_file
         self.qc_dir = qc_dir
         self.outdir = outdir
@@ -170,6 +171,7 @@ class DSC_process:
     
     def calc_mean_image(self):
         self.img_data_mean = np.mean(self.img_data,3)
+        self._save_img(self.img_data_mean, f'{self.pwi_type}MEAN')
 
     def motion_correction(self):
         """
@@ -196,12 +198,13 @@ class DSC_process:
             mytx = ants.registration(fixed_img, moving_img, type_of_transform='DenseRigid')
             ants_img[:,:,:,i] = ants.apply_transforms(fixed=fixed_img, moving=moving_img, transformlist=mytx['fwdtransforms'])
 
+        self._qc_motion_correction(self.img_data, ants_img.numpy())
+
+        # Set img_data to motion corrected data
         self.img_data = ants_img.numpy()
 
         #TODO Check overwrite image data 
-        #TODO Recalcualte mean image data
         self.calc_mean_image()
-        self._qc_motion_correction()
 
     def calc_concentration(self, k: float = 1):
         """
@@ -317,14 +320,14 @@ class DSC_process:
                 self.rth_img[x,y,z] = rth
 
         # Save parametric images
-        self._save_img(self.alpha_img, 'ALPHA')
-        self._save_img(self.beta_img, 'BETA')
-        self._save_img(self.delay_img, 'DELAY')
-        self._save_img(self.cbf_img, 'CBF')
-        self._save_img(self.cbv_img, 'CBV')
-        self._save_img(self.mtt_img, 'MTT')
-        self._save_img(self.cth_img, 'CTH')
-        self._save_img(self.rth_img, 'RTH')
+        self._save_img(self.alpha_img, f'{pwi_type}_ALPHA')
+        self._save_img(self.beta_img, f'{pwi_type}_BETA')
+        self._save_img(self.delay_img, f'{pwi_type}_DELAY')
+        self._save_img(self.cbf_img, f'{pwi_type}_CBF')
+        self._save_img(self.cbv_img, f'{pwi_type}_CBV')
+        self._save_img(self.mtt_img, f'{pwi_type}_MTT')
+        self._save_img(self.cth_img, f'{pwi_type}_CTH')
+        self._save_img(self.rth_img, f'{pwi_type}_RTH')
 
     def smooth_data(self, smooth_mask: np.array, kernel_type: str = 'gaussian', kernel_size: int = 3):
         # Slice-wise smoothing of image
@@ -532,20 +535,31 @@ class DSC_process:
 
         plt.close()
     
-    def _qc_motion_correction(self, n_cols: int = 8, slice_number: int = 25):
+    def _qc_motion_correction(self, pre_mc, post_mc, n_cols: int = 8, slice_number: int = 25):
         #TODO maybe plot pre and post motion correction 
         if self.baseline_end is None:
             print('Baseline end must be set.')
             return
 
-        dif_images = np.stack([self.img_data[:,:,:,i] - self.img_data[:,:,:,self.baseline_end] for i in range(self.img_data.shape[3])], axis=-1)
+        # Pre motion correction
+        dif_images_pre_mc = np.stack([pre_mc[:,:,:,i] - pre_mc[:,:,:,self.baseline_end] for i in range(pre_mc.shape[3])], axis=-1)
+        m_pre_mc = skimage.util.montage([dif_images_pre_mc[:,:,slice_number,i] for i in range(dif_images_pre_mc.shape[3])], grid_shape=(np.ceil(dif_images_pre_mc.shape[3]/n_cols), n_cols))
 
-        m = skimage.util.montage([dif_images[:,:,slice_number,i] for i in range(dif_images.shape[3])], grid_shape=(np.ceil(dif_images.shape[3]/n_cols), n_cols))
+        # Post motion correction
+        dif_images_post_mc = np.stack([post_mc[:,:,:,i] - post_mc[:,:,:,self.baseline_end] for i in range(post_mc.shape[3])], axis=-1)
+        m_post_mc = skimage.util.montage([dif_images_post_mc[:,:,slice_number,i] for i in range(dif_images_post_mc.shape[3])], grid_shape=(np.ceil(dif_images_post_mc.shape[3]/n_cols), n_cols))
         
-        plt.figure()
-        plt.imshow(m, cmap='gray')
-        plt.axis('off')
-        plt.title(f'Motion correction: {self.sub_id} - {self.tp}')
+        fig, axs = plt.subplots(1, 2, figsize=(16, 9))
+        # plt.figure()
+        axs[0].imshow(m_pre_mc, cmap='gray')
+        axs[0].axis('off')
+        axs[0].set_title('After motion correction')
+
+        axs[1].imshow(m_post_mc, cmap='gray')
+        axs[1].axis('off')
+        axs[1].set_title('After motion correction')
+        plt.suptitle(f'{self.sub_id} - {self.tp}')
+        plt.tight_layout()
         plt.savefig(f'{self.qc_dir}/{self.sub_id}_{self.tp}_motion_correction.jpg', dpi=200)
         plt.close()
                     
@@ -689,4 +703,43 @@ def get_info(dcm_file):
     info['TE'] = echoTime * 1e-3 # In seconds
     info['TR'] = repetitionTime * 1e-3 # In seconds
     info['acqorder'] = acqorder
+    
     return info
+
+def do_DSC_processing(parrent_outdir, stormdb_pwi_serie, t1_file, t1_mask_dir):
+    sub_id = stormdb_pwi_serie['subject'].zfill(4)
+    tp = stormdb_pwi_serie['study']
+    pwi_type = stormdb_pwi_serie['type']
+
+    print(f'{sub_id} - {tp}')
+    img_file, info = convert_pwi(stormdb_pwi_serie, parrent_outdir)
+
+    qc_dir = f'{parrent_outdir}/QC_figures/{sub_id}/{tp}/{pwi_type}'
+    outdir = f'{parrent_outdir}/data/{sub_id}/{tp}/MR'
+
+    proc = DSC_process(sub_id, tp, pwi_type, img_file, info, outdir, qc_dir)
+
+    # Preprocess DSC images
+    proc.slice_time_correction()
+    proc.mask_image()
+    proc.baseline_detection()
+    proc.set_baseline_start(4) # TODO what should this be? 
+    proc.truncate_signal()
+    proc.motion_correction()
+    proc.calc_concentration()
+
+    dsc_mean = ants.image_read(f'{proc.outdir}/{pwi_type}MEAN/NATSPACE/0001.nii')
+    t1 = ants.image_read(t1_file)
+
+    mytx = ants.registration(dsc_mean, t1, type_of_transform = 'SyN')
+
+    t1_resampled = ants.apply_transforms(fixed=dsc_mean, moving=t1, transformlist=mytx['fwdtransforms'])
+    ants.image_write(t1_resampled, f'{proc.outdir}/T1/{pwi_type}SPACE/0001.nii')
+
+
+    proc.smooth_data(smooth_mask)
+    proc.aif_selection(aif_search_mask)
+    proc.calc_perfusion()
+
+
+    pass
