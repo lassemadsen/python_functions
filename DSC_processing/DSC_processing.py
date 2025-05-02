@@ -11,26 +11,108 @@ from scipy.ndimage import convolve, gaussian_filter
 
 class DSC_process:
 
-    def __init__(self, sub_id: str, tp: str, pwi_type: str, img_file: str, info_dict: dict, outdir: str, qc_dir: str):
+    def __init__(self, sub_id: str, tp: str, pwi_type: str, img_file: str, info_dict: dict, project_dir: str, branch: str = ''): # outdir: str, qc_dir: str):
+        """
+        Initialize an instance for processing a subject's perfusion-weighted dynamic susceptibilty contrast (DSC) imaging data.
+
+        This class sets up paths, loads imaging data, initializes relevant variables, and prepares 
+        output directories for subsequent processing steps such as mask creation, data export, 
+        and quality control.
+
+        Parameters
+        ----------
+        sub_id : str
+            Subject identifier.
+        tp : str
+            Timepoint.
+        pwi_type : str
+            Type of perfusion-weighted DSC imaging (e.g., 'PWI', 'SEPWI').
+        img_file : str
+            Path to the NIfTI image file containing the DSC data.
+        info_dict : dict
+            Dictionary containing scan metadata. 
+            Must include keys: 'TR' (repetition time)
+                               'TE' (echo time)
+                               'acqorder' (Acquisition order)
+        project_dir : str
+            Base directory of the project where output and intermediate data will be stored.
+        branch : str, optional
+            Optional subdirectory suffix for branching output folders (e.g., for testing or model variations).
+
+        Attributes
+        ----------
+        img : nibabel.Nifti1Image
+            The loaded NIfTI image.
+        img_hdr : nibabel.Nifti1Header
+            Header of the loaded image.
+        img_data : np.ndarray
+            4D image data array from the NIfTI file.
+        repetition_time : float
+            TR (Repetition Time) extracted from `info_dict`.
+        echo_time : float
+            TE (Echo Time) extracted from `info_dict`.
+        data_dir, mask_dir, info_dir, qc_dir : str
+            Directories for data output, masks, metadata, and quality control figures.
+        baseline_start : int
+            Index indicating the start of baseline frames (currently defaulted to 0).
+        baseline_end : int or None
+            Index indicating the end of the baseline frames (to be set later).
+        conc_data : np.ndarray or None
+            Placeholder for concentration-time curve data.
+        aif : np.ndarray or None
+            Placeholder for arterial input function.
+        img_data_mean : np.ndarray
+            Mean image over time, computed at initialization.
+        mask : np.ndarray
+            Boolean array representing the initial processing mask (default: all True).
+        show_fitting_progression : bool
+            If True, enables voxel-wise visualization during model fitting (for debugging).
+
+        Notes
+        -----
+        - All necessary output directories are created at initialization.
+        - Additional image processing steps are expected to be called as separate methods.
+        - Suggested order of processing steps:
+            1. Slice time correction.
+            2. Mask image or set mask. (Optional but recommended for faster processing.)
+            3. Baseline detection.
+            4. Trunctate signal.
+            5. Motion correction.
+            6. Concentration calculation.
+            7. Automatic AIF selection.
+            8. Parametric deconvolution. 
+        """
         self.sub_id = sub_id
         self.tp = tp
         self.pwi_type = pwi_type
         self.img_file = img_file
-        self.qc_dir = qc_dir
-        self.outdir = outdir
         self.img = nib.load(img_file)
         self.img_hdr = self.img.header
         self.img_data = self.img.get_fdata()
         self.info = info_dict
 
+        # Define directories to save outputs 
+        self.project_dir = project_dir
+        self.data_dir = f'{project_dir}/data{branch}/{sub_id}/{tp}/MR'
+        self.mask_dir = f'{project_dir}/masks{branch}/{sub_id}/{tp}/MR/{pwi_type}'
+        self.info_dir = f'{project_dir}/info{branch}/{sub_id}/{tp}/MR/{pwi_type}'
+        self.qc_dir = f'{project_dir}/QC_figures{branch}/{sub_id}/{tp}/MR/{pwi_type}'
+
+        Path(self.data_dir).mkdir(exist_ok=True, parents=True)
+        Path(self.info_dir).mkdir(exist_ok=True, parents=True)
+        Path(self.mask_dir).mkdir(exist_ok=True, parents=True)
+        Path(self.qc_dir).mkdir(exist_ok=True, parents=True)
+
         self.repetition_time = self.info['TR']
         self.echo_time = self.info['TE']
-        self.baseline_start = 0 # Can this be determined in a good way?
+        self.acqorder = self.info['acqorder']
+        self._save_info()
 
         # Parameters defined in function calls
         self.baseline_end = None
+        self.baseline_start = None 
         self.conc_data = None
-        self.noise_threshold = None
+        # self.noise_threshold = None
         self.aif = None
         self.img_data_mean = None
         self.calc_mean_image()
@@ -39,13 +121,6 @@ class DSC_process:
         # Debugging parameters
         self.show_fitting_progression = False # If set to true, the deconvolution fitting will be shown for each voxel. 
 
-        # Mask image by default? 
-        #self.slice_time_correction()
-        # self.mask_image()
-
-        Path(self.qc_dir).mkdir(exist_ok=True, parents=True)
-        Path(self.outdir).mkdir(exist_ok=True, parents=True)
-    
 
     def mask_image(self, threshold: float = None):
         """ Mask image
@@ -57,10 +132,15 @@ class DSC_process:
             
             threshold_index = np.argmax(np.diff(np.diff(pct))) + 1
             threshold = pct[threshold_index]
-        self.noise_threshold = threshold
+        # self.noise_threshold = threshold
 
         self.mask = np.any(self.img_data > threshold,axis=3)
         self.img_data[~self.mask,:] = 0
+
+        self._qc_mask(self.mask, 'threshold_mask')
+
+        self._save_mask(self.mask, 'threshold_mask.nii')
+
 
     def baseline_detection(self):
         """ 
@@ -75,6 +155,12 @@ class DSC_process:
         gradients_smooth = np.diff(moving_avg)
         threshold = -(np.max(mean_signal)-np.min(mean_signal))/20 # 5 % drop
         self.baseline_end = int(np.where(gradients_smooth < threshold)[0][0])
+
+        self.baseline_start = 4 # Can this be determined in a good way?
+
+        self.info['baseline_start'] = self.baseline_start
+        self.info['baseline_end'] = self.baseline_end
+        self._save_info()
 
         self._qc_baseline_detection()
 
@@ -100,13 +186,10 @@ class DSC_process:
             return
 
         TimeBetweenVolumes = self.repetition_time
-        sliceorder = self.info['acqorder']
-
         nx, ny, nslices, nframes = self.img_data.shape
 
         # Get acqusition order
-        # sliceorder = self._get_acqorder(dcm_file)
-        nslices_multiband = len(np.unique(sliceorder))
+        nslices_multiband = len(np.unique(self.acqorder))
 
         # Compute timing parameters
         TA = TimeBetweenVolumes - TimeBetweenVolumes/nslices_multiband #repetition time not same a timebetweenvolumes? 
@@ -127,7 +210,7 @@ class DSC_process:
             for sliceii in range(nslices_multiband):
                 
                 # Set up time acquired within slice order
-                shiftamount  = (np.where(sliceorder[:nslices_multiband] == sliceii)[0][0] + 1 - rslice) * factor
+                shiftamount  = (np.where(self.acqorder[:nslices_multiband] == sliceii)[0][0] + 1 - rslice) * factor
                 
                 currentslice = sliceii + multibandii * nslices_multiband
 
@@ -165,8 +248,9 @@ class DSC_process:
 
         # Overwrite original data with slice time corrected
         self.img_data = slice_time_corrected
+        self._save_img(self.img_data, self.pwi_type)
 
-        # Create var to track that slice time correction has been done. 
+        # Create variable to track that slice time correction has been done to ensure that it is not performed more than once. 
         self.slice_time_correction_done = True
     
     def calc_mean_image(self):
@@ -202,6 +286,7 @@ class DSC_process:
 
         # Set img_data to motion corrected data
         self.img_data = ants_img.numpy()
+        self._save_img(self.img_data, self.pwi_type)
 
         #TODO Check overwrite image data 
         self.calc_mean_image()
@@ -241,12 +326,17 @@ class DSC_process:
 
         # TODO Option to mask 5 and 95 percentiles of CBV? 
 
+        self._save_img(self.conc_data, f'{self.pwi_type}_CONC')
+
         self._qc_concentration()
 
     def aif_selection(self, aif_search_mask: str, gm_mask: str, n_aif: int = 10):
 
         aif_search_mask = nib.load(aif_search_mask)
         gm_mask = nib.load(gm_mask)
+
+        self._check_mask(aif_search_mask)
+        self._check_mask(gm_mask)
         
         # TODO Check header information between aif_search_mask, gm_mask and self.img fits (i.e. dimensions, steps, location etc.)
 
@@ -254,10 +344,10 @@ class DSC_process:
         self.aif_select = aif_selection(self, aif_search_mask.get_fdata(), gm_mask.get_fdata(), n_aif)
         self.aif_select.select_aif()
         self.aif = self.aif_select.final_aif
-        self.aif_area = np.trapz(self.aif, self.repetition_time)
+        self.aif_area = np.trapz(self.aif, dx=self.repetition_time)
 
-        self.info['AIF'] = {'AIFs' : self.aif_select.aif, 'AIF': self.aif_select.aif, 'AIF_area': self.aif_area}
-
+        self.info['AIF_info'] = {'AIFs' : self.aif_select.final_aifs, 'AIF': self.aif_select.final_aif, 'AIF_area': self.aif_area}
+        self._save_info()
         self._qc_aif_selection()
 
     def calc_perfusion(self, sampling_factor:int = 8, TimeBetweenVolumes:float = None):
@@ -336,7 +426,9 @@ class DSC_process:
         # Slice-wise smoothing of image
         # TODO Options (gaussian/uniform, filter size)
         if isinstance(smooth_mask, str):
-            smooth_mask = nib.load(smooth_mask).get_fdata()
+            smooth_mask = nib.load(smooth_mask)
+            self._check_mask(smooth_mask)
+            smooth_mask = smooth_mask.get_fdata()
         elif isinstance(smooth_mask, np.ndarray):
             pass # TODO how to check header?
         elif smooth_mask is None:
@@ -386,7 +478,10 @@ class DSC_process:
                 data_smoothed[:,:,z_slice,frame] = self._zero_edge(data_smoothed[:,:,z_slice,frame], edge_width)
                 self.mask[:,:,z_slice] = self._zero_edge(self.mask[:,:,z_slice], edge_width)
             
+        self._save_img(data_smoothed, f'{self.pwi_type}CONC_smoothed')
+
         self.conc_data = data_smoothed
+
 
     def _get_kernel(self, fwhm, kernel_width):
         """ Funciton to get smoothing kernel exactly like DSC-pipeline in MATLAB (CFIN repo: gauss_kern.m)
@@ -515,19 +610,17 @@ class DSC_process:
     def set_baseline_start(self, baseline_start: int):
         self.baseline_start = baseline_start
 
-    def set_aif_search_mask(self, aif_seach_mask: str):
-        mask = nib.load(aif_seach_mask)
-        mask_hdr = mask.header
-        # TODO Check header fits with DSC data
-
-        self.aif_seach_mask = mask.get_fdata()
+    def set_aif_search_mask(self, aif_seach_mask_file: str):
+        aif_search_mask = nib.load(aif_seach_mask_file)
+        self._check_mask(aif_search_mask)
+        self.aif_seach_mask = aif_search_mask.get_fdata()
     
-    def set_mask(self, mask: str):
-        mask = nib.load(mask)
-        mask_hdr = mask.header
-        # TODO Check header fits with DSC data
+    def set_mask(self, mask_file: str):
+        mask = nib.load(maskmask_file)
+        self._check_mask(mask)
 
         self.mask = mask.get_fdata()
+        self._qc_mask(self.mask, mask_file.split('/')[-1].split('.nii')[0])
 
     # QC methods
     def _qc_baseline_detection(self, truncated: bool = False):
@@ -564,7 +657,7 @@ class DSC_process:
         fig, axs = plt.subplots(1, 2, figsize=(16, 9))
         axs[0].imshow(m_pre_mc, cmap='gray')
         axs[0].axis('off')
-        axs[0].set_title('After motion correction')
+        axs[0].set_title('Before motion correction')
 
         axs[1].imshow(m_post_mc, cmap='gray')
         axs[1].axis('off')
@@ -573,6 +666,20 @@ class DSC_process:
         plt.tight_layout()
         plt.savefig(f'{self.qc_dir}/{self.sub_id}_{self.tp}_motion_correction.jpg', dpi=200)
         plt.close()
+
+    def _qc_mask(self, mask, mask_name):
+        n_cols = 8
+        m_image = skimage.util.montage([self.img_data_mean[:,:,slice_number] for slice_number in range(self.img_data_mean.shape[2])], grid_shape=(np.ceil(self.img_data_mean.shape[2]/n_cols), n_cols))
+        m_mask = skimage.util.montage([mask[:,:,slice_number] for slice_number in range(mask.shape[2])], grid_shape=(np.ceil(mask.shape[2]/n_cols), n_cols))
+
+        plt.imshow(m_image, cmap='gray')
+        plt.imshow(m_mask, cmap='gray', alpha=0.4)
+
+        plt.suptitle(f'{self.sub_id} - {self.tp}')
+        plt.tight_layout()
+        plt.savefig(f'{self.qc_dir}/{self.sub_id}_{self.tp}_{mask_name}.jpg', dpi=200)
+        plt.close()
+
                     
     def _qc_concentration(self):
         mean_conc = np.mean(self.conc_data[self.mask],axis=0)
@@ -634,147 +741,40 @@ class DSC_process:
         plt.savefig(f'{self.qc_dir}/{self.sub_id}_{self.tp}_slice_time_correction.jpg', dpi=200)
         plt.close()
 
+    # Check header information
+    def _check_mask(self, mask):
+        # Check identical affine by comparing dimension and determinant:
+        mask_det = np.linalg.det(mask.affine[:3, :3])
+        img_det = np.linalg.det(self.img.affine[:3, :3])
+
+        mask_pix_dims = mask.header.get_zooms()
+        img_pix_dims = self.img_hdr.get_zooms()[0:len(mask_pix_dims)]
+
+        if not np.isclose(img_det, mask_det) or not np.all(np.isclose(img_pix_dims, mask_pix_dims)):
+            raise ValueError('Error! Mask affine matrix is difference from image.')
 
     # Save function
     def _save_img(self, data: np.array, name: str):
         #TODO Maybe track progression of analysis
         #TODO should header be different? 
 
-        outdir = f'{self.outdir}/{name}/NATSPACE'
+        outdir = f'{self.data_dir}/{name}/NATSPACE'
         Path(outdir).mkdir(exist_ok=True, parents=True)
 
         img_to_save = nib.Nifti1Image(data, self.img.affine, self.img_hdr)
         nib.save(img_to_save, outdir + '/0001.nii')
 
-def convert_pwi(filtered_serie: dict, outdir: str, clobber: bool = False):
-    from glob import glob
-    import dicom2nifti
+    def _save_mask(self, mask: np.array, name: str):
+        #TODO Maybe track progression of analysis
+        #TODO should header be different? 
 
-    sub_id = filtered_serie['subject'].zfill(4)
-    tp = filtered_serie['study']
-    modality = filtered_serie['modality']
-    series_type = filtered_serie['type']
-    data_dir_f = f'{outdir}/data/{sub_id}/{tp}/{modality}/{series_type}/NATSPACE'
-    info_dir_f = f'{outdir}/info/{sub_id}/{tp}/{modality}/{series_type}'
-    
-    Path(data_dir_f).mkdir(parents=True, exist_ok=True)
-    Path(info_dir_f).mkdir(parents=True, exist_ok=True)
+        outdir = f'{self.mask_dir}/{self.pwi_type}/NATSPACE'
+        Path(outdir).mkdir(exist_ok=True, parents=True)
 
-    out_file = f'{data_dir_f}/0001.nii'
+        mask_to_save = nib.Nifti1Image(mask, self.img.affine, self.img_hdr)
+        nib.save(mask_to_save, f'{outdir}/{name}')
 
-    if not os.path.isfile(out_file) or clobber:
+    def _save_info(self):
 
-        # CONVERT IMG DATA
-        dicom2nifti.convert_directory('/Volumes' + filtered_serie['path'], data_dir_f, compression=False)
-
-        # Rename output file
-        out_file_temp = glob(data_dir_f + '/*.nii')[0]
-        os.rename(out_file_temp, out_file)
-    else:
-        print(f'{out_file} exits. Use clobber to overwrite.')
-
-    # INFO
-    dcm_file = f'/Volumes/{filtered_serie["path"]}/{filtered_serie["files"][0]}'
-    info = get_info(dcm_file)
-
-    # Save
-    with open(f'{info_dir_f}/info.pkl', 'wb') as info_file:
-        pickle.dump(info, info_file)
-
-    return out_file, info
-
-
-def get_info(dcm_file):
-    import pydicom
-    ds = pydicom.dcmread(dcm_file)
-
-    info = {}
-
-    # --- Echo time ---
-    echoTime = ds.EchoTime
-
-    # --- Repetition time ---
-    repetitionTime = ds.RepetitionTime
-
-    # --- Aquisition times ---
-    for element in ds:
-        if "MosaicRefAcqTimes" in element.name:
-            acqtime = element.value
-
-    acqorder = np.argsort(acqtime)
-
-    uniq_acqtime = list(dict.fromkeys(acqtime))
-
-    _, uniq_acqorder = np.unique(uniq_acqtime, return_index=True)
-
-    for i, time in enumerate(uniq_acqtime):
-        acqorder[np.array(acqtime) == time] = uniq_acqorder[i]
-    
-    # --- Return ---
-    info['TE'] = echoTime * 1e-3 # In seconds
-    info['TR'] = repetitionTime * 1e-3 # In seconds
-    info['acqorder'] = acqorder
-    
-    return info
-
-def do_DSC_processing(parrent_outdir, stormdb_pwi_serie, t1_file, t1_mask_dir):
-    sub_id = stormdb_pwi_serie['subject'].zfill(4)
-    tp = stormdb_pwi_serie['study']
-    pwi_type = stormdb_pwi_serie['type']
-
-    print(f'{sub_id} - {tp}')
-    img_file, info = convert_pwi(stormdb_pwi_serie, parrent_outdir)
-
-    qc_dir = f'{parrent_outdir}/QC_figures/{sub_id}/{tp}/{pwi_type}'
-    outdir_data = f'{parrent_outdir}/data/{sub_id}/{tp}/MR'
-    outdir_info = f'{parrent_outdir}/info/{sub_id}/{tp}/MR'
-    outdir_masks = f'{parrent_outdir}/masks/{sub_id}/{tp}/MR'
-
-    proc = DSC_process(sub_id, tp, pwi_type, img_file, info, outdir_data, qc_dir)
-
-    # Preprocess DSC images
-    proc.slice_time_correction()
-    proc.mask_image()
-    proc.baseline_detection()
-    proc.set_baseline_start(4) # TODO what should this be? 
-    proc.truncate_signal()
-    proc.motion_correction()
-    proc.calc_concentration()
-
-    dsc_mean = ants.image_read(f'{proc.outdir}/{pwi_type}MEAN/NATSPACE/0001.nii')
-    t1 = ants.image_read(t1_file)
-
-    transform = ants.registration(dsc_mean, t1, type_of_transform = 'SyN')
-    # ants.write_transform(transform['fwdtransforms'], f'{outdir_info}/t1_{pwi_type}MEAN_transform')
-
-    t1_resampled = ants.apply_transforms(fixed=dsc_mean, moving=t1, transformlist=transform['fwdtransforms'])
-    Path(f'{proc.outdir}/T1/{pwi_type}SPACE').mkdir(parents=True, exist_ok=True)
-    ants.image_write(t1_resampled, f'{proc.outdir}/T1/{pwi_type}SPACE/0001.nii')
-
-    for mask_file in ['struc_gm.nii', 'struc_wm.nii', 'AIFsearchMask.nii']:
-        mask = ants.image_read(f'{t1_mask_dir}/{mask_file}')
-
-        interpolator = 'nearestNeighbor'
-
-        mask_resampled = ants.apply_transforms(fixed=dsc_mean, moving=mask, transformlist=transform['fwdtransforms'], interpolator=interpolator)
-
-        Path(f'{outdir_masks}/T1/{pwi_type}SPACE').mkdir(parents=True, exist_ok=True)
-
-        ants.image_write(mask_resampled, f'{outdir_masks}/T1/{pwi_type}SPACE/{mask_file}')
-    
-    # Create smooth mask
-    gm_mask_file = f'{outdir_masks}/T1/{pwi_type}SPACE/struc_gm.nii'
-    wm_mask_file = f'{outdir_masks}/T1/{pwi_type}SPACE/struc_wm.nii'
-    gm_mask = nib.load(gm_mask_file)
-    wm_mask = nib.load(wm_mask_file)
-    smooth_mask = (gm_mask.get_fdata()) + (wm_mask.get_fdata())
-
-    smooth_mask_file = f'{outdir_masks}/T1/{pwi_type}SPACE/smooth_mask.nii'
-    smooth_mask_to_save = nib.Nifti1Image(smooth_mask, gm_mask.affine, gm_mask.header)
-    nib.save(smooth_mask_to_save, smooth_mask_file)
-
-    aif_search_mask_file = f'{outdir_masks}/T1/{pwi_type}SPACE/AIFsearchMask.nii'
-
-    proc.smooth_data(smooth_mask_file)
-    proc.aif_selection(aif_search_mask_file, gm_mask_file)
-    proc.calc_perfusion()
+        with open(f'{self.info_dir}/info.pkl', 'wb') as info_file:
+            pickle.dump(self.info, info_file)
