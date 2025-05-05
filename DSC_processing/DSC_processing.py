@@ -8,6 +8,7 @@ import skimage.util
 from pathlib import Path
 from deconv_helperFunctions import mySvd, IntDcmTR, spm_nlso_gn_no_graphic, calc_CBV_by_integration
 from scipy.ndimage import convolve, gaussian_filter
+# from tqdm import tqdm
 
 class DSC_process:
 
@@ -367,8 +368,12 @@ class DSC_process:
 
         t = np.arange(self.conc_data.shape[3]) * TimeBetweenVolumes # OBS: Should probably be repetition time, however this is different from TimeBetweenVolumes in MATLAB 1.56 vs. 1.563
 
-        from tqdm import tqdm
-        for z in tqdm(range(self.conc_data.shape[2]), desc="Slice"):
+        print('Deconvolution slice: ', flush=True, end='')
+
+        # for z in tqdm(range(self.conc_data.shape[2]), desc="Slice"):
+        for z in range(self.conc_data.shape[2]):
+
+            print(f'{z} ', flush=True, end='')
             if not np.any(self.mask[:, :, z]):
                 continue # No valid data in slice
             # Slice-wise initial guess:
@@ -396,7 +401,9 @@ class DSC_process:
 
             p_slice = [np.log(np.array([svd_cbf[i], 1, svd_delay[i], svd_mtt[i]])) for i in range(int(self.mask[:, :, z].sum()))]
 
-            for i in tqdm(range(len(voxels)), desc='Voxel', leave=False):
+            # for i in tqdm(range(len(voxels)), desc='Voxel', leave=False):
+            for i in range(len(voxels)):
+                
                 x = voxels[i, 0]
                 y = voxels[i, 1]
                 voxel_data = self.conc_data[x,y,z]
@@ -411,6 +418,8 @@ class DSC_process:
                 self.mtt_img[x,y,z] = mtt
                 self.cth_img[x,y,z] = cth
                 self.rth_img[x,y,z] = rth
+
+        print('Done with deconvolution.', flush=True)
 
         # Save parametric images
         self._save_img(self.alpha_img, f'{self.pwi_type}_ALPHA')
