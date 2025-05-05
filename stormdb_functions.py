@@ -4,6 +4,7 @@ import numpy as np
 from tempfile import TemporaryDirectory
 from glob import glob
 import dicom2nifti
+import shutil
 
 if str(Path('__file__').resolve()).startswith('/Volumes'):
     path_prefix = '/Volumes'
@@ -21,7 +22,7 @@ def convert_pwi(filtered_serie: dict, outfile: str, clobber: bool = False):
             out_file_temp = glob(tmp_dir + '/*.nii')[0]
 
             Path(os.path.dirname(outfile)).mkdir(parents=True, exist_ok=True)
-            os.rename(out_file_temp, outfile)
+            shutil.move(out_file_temp, outfile)
     else:
         print(f'{outfile} exits. Use clobber to overwrite.')
 
