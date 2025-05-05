@@ -1,17 +1,21 @@
 from pathlib import Path
-import pickle
 import os
 import numpy as np
 from tempfile import TemporaryDirectory
 from glob import glob
 import dicom2nifti
 
+if str(Path('__file__').resolve()).startswith('/Volumes'):
+    path_prefix = '/Volumes'
+else:
+    path_prefix = ''
+
 def convert_pwi(filtered_serie: dict, outfile: str, clobber: bool = False):
     if not os.path.isfile(outfile) or clobber:
 
         with TemporaryDirectory() as tmp_dir:
-            # CONVERT IMG DATA
-            dicom2nifti.convert_directory('/Volumes' + filtered_serie['path'], tmp_dir, compression=False)
+            # Convert iamge data
+            dicom2nifti.convert_directory(path_prefix + filtered_serie['path'], tmp_dir, compression=False)
 
             # Rename output file
             out_file_temp = glob(tmp_dir + '/*.nii')[0]
@@ -22,7 +26,7 @@ def convert_pwi(filtered_serie: dict, outfile: str, clobber: bool = False):
         print(f'{outfile} exits. Use clobber to overwrite.')
 
     # INFO
-    dcm_file = f'/Volumes/{filtered_serie["path"]}/{filtered_serie["files"][0]}'
+    dcm_file = f'{path_prefix}/{filtered_serie["path"]}/{filtered_serie["files"][0]}'
     info = get_info(dcm_file)
 
     return info
