@@ -319,11 +319,13 @@ class DSC_process:
             intensity_data[idx,t] = floor_value
 
         # Calculate concentration
-        self.conc_data[self.mask] = -k / self.echo_time * np.log(intensity_data / S0[...,np.newaxis])
+        # C(t) = -k 1/TE * ln(S(t)/S0)      k is a proportionality factor
+        ratio = intensity_data / S0[...,np.newaxis]
+        valid_mask = ratio > 0
+        conc = np.zeros_like(ratio)  # Make sure only valid voxels are calculated. Else set to zero
+        conc[valid_mask] = -k / self.echo_time * np.log(ratio[valid_mask])
 
-        # Check for NaNs or Infs
-        self.conc_data[np.isnan(self.conc_data)] = 0
-        self.conc_data[np.isinf(self.conc_data)] = 0
+        self.conc_data[self.mask] = conc
 
         # TODO Option to mask 5 and 95 percentiles of CBV? 
 
@@ -393,11 +395,11 @@ class DSC_process:
             # For MATLAB compatability. A bit messy to upsample here. Should be done in fitting class
             dt = 1 / sampling_factor * TimeBetweenVolumes 
             svd_delay = svd_delay / dt
-            # Control minimum delay (only above this in very noisy voxels.)
+            # Control minimum delay (only above value this in very noisy voxels.)
             svd_delay = np.minimum(svd_delay, 5/dt)
 
             svd_mtt[svd_mtt <= 0] = 1
-            svd_cbf[svd_cbf == 0] = np.min(svd_cbf[svd_cbf != 0])
+            svd_cbf[svd_cbf <= 0] = np.min(svd_cbf[svd_cbf > 0])
 
             p_slice = [np.log(np.array([svd_cbf[i], 1, svd_delay[i], svd_mtt[i]])) for i in range(int(self.mask[:, :, z].sum()))]
 

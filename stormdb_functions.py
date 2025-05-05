@@ -6,12 +6,16 @@ from glob import glob
 import dicom2nifti
 import shutil
 
-if str(Path('__file__').resolve()).startswith('/Volumes'):
-    path_prefix = '/Volumes'
-else:
-    path_prefix = ''
 
-def convert_pwi(filtered_serie: dict, outfile: str, clobber: bool = False):
+
+def convert_pwi(filtered_serie: dict, outfile: str, clobber: bool = False, path_prefix=None):
+    if path_prefix is None:
+        if str(Path('__file__').resolve()).startswith('/Volumes'):
+            path_prefix = '/Volumes'
+        else:
+            path_prefix = ''
+
+
     if not os.path.isfile(outfile) or clobber:
 
         with TemporaryDirectory() as tmp_dir:
