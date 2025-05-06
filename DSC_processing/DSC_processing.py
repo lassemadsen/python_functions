@@ -12,7 +12,8 @@ from scipy.ndimage import convolve, gaussian_filter
 
 class DSC_process:
 
-    def __init__(self, sub_id: str, tp: str, pwi_type: str, img_file: str, info_dict: dict, project_dir: str, branch: str = ''): # outdir: str, qc_dir: str):
+    def __init__(self, sub_id: str, tp: str, pwi_type: str, img_file: str, info_dict: dict, 
+                 project_dir: str, branch: str = ''): # outdir: str, qc_dir: str):
         """
         Initialize an instance for processing a subject's perfusion-weighted dynamic susceptibilty contrast (DSC) imaging data.
 
@@ -143,11 +144,14 @@ class DSC_process:
         self._save_mask(self.mask, 'threshold_mask.nii')
 
 
-    def baseline_detection(self):
+    def baseline_detection(self, signal: np.ndarray = None):
         """ 
         Performs baseline detection.
         """
-        mean_signal = np.mean(self.img_data[self.mask],axis=0)
+        if signal is None:
+            mean_signal = np.mean(self.img_data[self.mask],axis=0)
+        else:
+            mean_signal = signal
 
         # Smooth 
         window = 3
@@ -341,7 +345,6 @@ class DSC_process:
         self._check_mask(aif_search_mask)
         self._check_mask(gm_mask)
         
-        # TODO Check header information between aif_search_mask, gm_mask and self.img fits (i.e. dimensions, steps, location etc.)
 
         from aif_selection import aif_selection
         self.aif_select = aif_selection(self, aif_search_mask.get_fdata(), gm_mask.get_fdata(), n_aif)
@@ -352,6 +355,9 @@ class DSC_process:
         self.info['AIF_info'] = {'AIFs' : self.aif_select.final_aifs, 'AIF': self.aif_select.final_aif, 'AIF_area': self.aif_area}
         self._save_info()
         self._qc_aif_selection()
+
+        # Update baseline using only AIF signal 
+        self.baseline_detection(self.aif_select.final_aif_signal) 
 
     def calc_perfusion(self, sampling_factor:int = 8, TimeBetweenVolumes:float = None):
         #TODO Calc TTP 
