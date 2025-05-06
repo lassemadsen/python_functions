@@ -630,7 +630,7 @@ class DSC_process:
         mask = nib.load(mask_file)
         self._check_mask(mask)
 
-        self.mask = mask.get_fdata()
+        self.mask = mask.get_fdata().astype(bool)
         self._qc_mask(self.mask, mask_file.split('/')[-1].split('.nii')[0])
 
     # QC methods
