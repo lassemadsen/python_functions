@@ -94,10 +94,10 @@ class DSC_process:
 
         # Define directories to save outputs 
         self.project_dir = project_dir
-        self.data_dir = f'{project_dir}/data{branch}/{sub_id}/{tp}/MR'
-        self.mask_dir = f'{project_dir}/masks{branch}/{sub_id}/{tp}/MR/{pwi_type}'
-        self.info_dir = f'{project_dir}/info{branch}/{sub_id}/{tp}/MR/{pwi_type}'
-        self.qc_dir = f'{project_dir}/QC_figures{branch}/{sub_id}/{tp}/MR/{pwi_type}'
+        self.data_dir = f'{project_dir}/DSC_analysis{branch}/data/{sub_id}/{tp}/MR'
+        self.mask_dir = f'{project_dir}/DSC_analysis{branch}/masks/{sub_id}/{tp}/MR/{pwi_type}'
+        self.info_dir = f'{project_dir}/DSC_analysis{branch}/info/{sub_id}/{tp}/MR/{pwi_type}'
+        self.qc_dir = f'{project_dir}/DSC_analysis{branch}/QC_figures/{sub_id}/{tp}/MR/{pwi_type}'
 
         Path(self.data_dir).mkdir(exist_ok=True, parents=True)
         Path(self.info_dir).mkdir(exist_ok=True, parents=True)
@@ -627,7 +627,7 @@ class DSC_process:
         self.aif_seach_mask = aif_search_mask.get_fdata()
     
     def set_mask(self, mask_file: str):
-        mask = nib.load(maskmask_file)
+        mask = nib.load(mask_file)
         self._check_mask(mask)
 
         self.mask = mask.get_fdata()
