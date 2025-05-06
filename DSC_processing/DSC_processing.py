@@ -144,7 +144,7 @@ class DSC_process:
         self._save_mask(self.mask, 'threshold_mask.nii')
 
 
-    def baseline_detection(self, signal: np.ndarray = None):
+    def baseline_detection(self, signal: np.ndarray = None, qc = True):
         """ 
         Performs baseline detection.
         """
@@ -167,7 +167,8 @@ class DSC_process:
         self.info['baseline_end'] = self.baseline_end
         self._save_info()
 
-        self._qc_baseline_detection()
+        if qc:
+            self._qc_baseline_detection()
 
     def truncate_signal(self, bolus_length_seconds: float = 60):
         """
@@ -357,7 +358,8 @@ class DSC_process:
         self._qc_aif_selection()
 
         # Update baseline using only AIF signal 
-        self.baseline_detection(self.aif_select.final_aif_signal) 
+        self.baseline_detection(self.aif_select.final_aif_signal, qc = False) 
+        self._qc_baseline_detection(signal = self.aif_select.final_aif_signal, aif = True)
 
     def calc_perfusion(self, sampling_factor:int = 8, TimeBetweenVolumes:float = None):
         #TODO Calc TTP 
@@ -640,8 +642,12 @@ class DSC_process:
         self._qc_mask(self.mask, mask_file.split('/')[-1].split('.nii')[0])
 
     # QC methods
-    def _qc_baseline_detection(self, truncated: bool = False):
-        mean_signal = np.mean(self.img_data[self.mask],axis=0)
+    def _qc_baseline_detection(self, truncated: bool = False, aif : bool = False, signal : np.ndarray = None):
+        if signal is None:
+            mean_signal = np.mean(self.img_data[self.mask],axis=0)
+        else:
+            mean_signal = signal
+
         plt.figure()
         plt.plot(np.arange(len(mean_signal))*self.repetition_time, mean_signal)
         plt.scatter(self.baseline_end*self.repetition_time, mean_signal[self.baseline_end])
@@ -651,6 +657,9 @@ class DSC_process:
         if truncated:
             plt.title(f'Bolus truncation: {self.sub_id} - {self.tp}')
             plt.savefig(f'{self.qc_dir}/{self.sub_id}_{self.tp}_bolus_truncation.jpg', dpi=200)
+        elif aif:
+            plt.title(f'Bolus deteciton using AIF: {self.sub_id} - {self.tp}')
+            plt.savefig(f'{self.qc_dir}/{self.sub_id}_{self.tp}_bolus_detection_aif.jpg', dpi=200)
         else:
             plt.title(f'Baseline detection: {self.sub_id} - {self.tp}')
             plt.savefig(f'{self.qc_dir}/{self.sub_id}_{self.tp}_baseline_detection.jpg', dpi=200)
