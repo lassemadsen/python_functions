@@ -115,12 +115,12 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_t
                     _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
 
         if qc_file is not None:
-            bg_val = bash_helper.run_shell(f'mincstats -min -quiet {param_data}') # Surface_mask sets the background value to the min of the image. 
+            bg_val = run_shell(f'mincstats -min -quiet {param_data}') # Surface_mask sets the background value to the min of the image. 
             bg_val = math.ceil(float(bg_val)*1000)/1000
-            bash_helper.run_shell(f'surface_mask {param_data} {outdir}/{out_id}_{param_tp}_mid_left_{param_name}.obj {tmp_dir}/surface_left.mnc')
-            bash_helper.run_shell(f'surface_mask {param_data} {outdir}/{out_id}_{param_tp}_mid_right_{param_name}.obj {tmp_dir}/surface_right.mnc')
+            run_shell(f'surface_mask {param_data} {outdir}/{out_id}_{param_tp}_mid_left_{param_name}.obj {tmp_dir}/surface_left.mnc')
+            run_shell(f'surface_mask {param_data} {outdir}/{out_id}_{param_tp}_mid_right_{param_name}.obj {tmp_dir}/surface_right.mnc')
 
-            bash_helper.run_shell(f'minccalc -expr "A[0]>{bg_val}||A[1]>{bg_val} ? 1 : 0" {tmp_dir}/surface_left.mnc {tmp_dir}/surface_right.mnc {tmp_dir}/surface.mnc')
+            run_shell(f'minccalc -expr "A[0]>{bg_val}||A[1]>{bg_val} ? 1 : 0" {tmp_dir}/surface_left.mnc {tmp_dir}/surface_right.mnc {tmp_dir}/surface.mnc')
             mask_qc(param_data, f'{tmp_dir}/surface.mnc', qc_outfile, clobber=CLOBBER, mask_alpha=0.7)
 
 
