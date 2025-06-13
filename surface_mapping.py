@@ -122,7 +122,7 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_t
             run_shell(f'surface_mask {param_data} {outdir}/{out_id}_{param_tp}_mid_right_{param_name}.obj {tmp_dir}/surface_right.mnc')
 
             run_shell(f'minccalc -expr "A[0]>{bg_val}||A[1]>{bg_val} ? 1 : 0" {tmp_dir}/surface_left.mnc {tmp_dir}/surface_right.mnc {tmp_dir}/surface.mnc')
-            mask_qc(param_data, f'{tmp_dir}/surface.mnc', qc_outfile, clobber=CLOBBER, mask_alpha=0.7)
+            mask_qc(param_data, f'{tmp_dir}/surface.mnc', qc_file, clobber=CLOBBER, mask_alpha=0.7)
 
 
 def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, 
