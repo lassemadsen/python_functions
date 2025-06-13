@@ -17,6 +17,7 @@ from brainspace.mesh.mesh_io import read_surface
 from tempfile import TemporaryDirectory
 from bash_helper import run_shell
 from mask_qc import mask_qc
+import math
 
 SURFACE_GII = {'left': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_left_smooth.gii',
                'right': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_right_smooth.gii'}
