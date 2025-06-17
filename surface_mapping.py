@@ -17,6 +17,7 @@ from brainspace.mesh.mesh_io import read_surface
 from tempfile import TemporaryDirectory
 from bash_helper import run_shell
 from mask_qc import mask_qc
+from surface_plot import plot_surface
 import math
 
 SURFACE_GII = {'left': '/public/lama/data/surface/mni_icbm152_t1_tal_nlin_sym_09c_left_smooth.gii',
@@ -27,7 +28,7 @@ SURFACE_BLUR = 20
 
 def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_tp, param_tp, 
                    param_name, outdir, out_id=None, clean_surface=False, surface_blur=20, 
-                   bg_val=None, set_bg_to_mean=False, qc_file=None, clobber=False):
+                   bg_val=None, set_bg_to_mean=False, qc_dir=None, clobber=False):
     """Map parameter signals to mid surface 
 
     Parameters
@@ -115,18 +116,23 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_t
                 if clean_surface:
                     _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
 
-        if qc_file is not None:
+        if qc_dir is not None:
             bg_val = run_shell(f'mincstats -min -quiet {param_data}') # Surface_mask sets the background value to the min of the image. 
             bg_val = math.ceil(float(bg_val)*1000)/1000
             run_shell(f'surface_mask {param_data} {outdir}/{out_id}_{param_tp}_mid_left_{param_name}.obj {tmp_dir}/surface_left.mnc')
             run_shell(f'surface_mask {param_data} {outdir}/{out_id}_{param_tp}_mid_right_{param_name}.obj {tmp_dir}/surface_right.mnc')
 
             run_shell(f'minccalc -expr "A[0]>{bg_val}||A[1]>{bg_val} ? 1 : 0" {tmp_dir}/surface_left.mnc {tmp_dir}/surface_right.mnc {tmp_dir}/surface.mnc')
-            mask_qc(param_data, f'{tmp_dir}/surface.mnc', qc_file, clobber=clobber, mask_alpha=0.7)
+            mask_qc(param_data, f'{tmp_dir}/surface.mnc', f'{qc_dir}/{out_id}_{param_tp}_{param_name}_surface_image.jpg', clobber=clobber, mask_alpha=0.7)
+
+            data = {'left': pd.read_csv(f'{outdir}/{out_id}_{param_tp}_mid_left_{param_name}_std_blur{surface_blur}.dat'), 
+                    'right': pd.read_csv(f'{outdir}/{out_id}_{param_tp}_mid_right_{param_name}_std_blur{surface_blur}.dat')}
+            plot_surface.plot_surface(data, f'{qc_dir}/{out_id}_{param_tp}_{param_name}_surface_data.jpg', title=f'{out_id}_{param_tp}', cbar_title=param_name)
+
 
 
 def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_name, outdir, out_id=None, 
-                       clean_surface=False, surface_blur=20, bg_val=None, set_bg_to_mean=False, clobber=False):
+                       clean_surface=False, surface_blur=20, bg_val=None, set_bg_to_mean=False, qc_dir=None, clobber=False):
     """Map parameter signals to mid surface 
 
     Parameters
@@ -209,6 +215,11 @@ def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_
                     
                 if clean_surface:
                     _clean_surface_after_smoothing(f'{out_surface_prefix}_std.dat', f'{out_surface_prefix}_std_blur{surface_blur}.dat')
+
+        if qc_dir is not None:
+            data = {'left': pd.read_csv(f'{outdir}/{out_id}_{param_tp}_mid_left_{param_name}_std_blur{surface_blur}.dat'), 
+                    'right': pd.read_csv(f'{outdir}/{out_id}_{param_tp}_mid_right_{param_name}_std_blur{surface_blur}.dat')}
+            plot_surface.plot_surface(data, f'{qc_dir}/{out_id}_{param_tp}_{param_name}_surface_data.jpg', title=f'{out_id}_{param_tp}', cbar_title=param_name)
 
 
 def _run_process(process_list, sub_id, timepoint, hemisphere, measurement, clobber):
