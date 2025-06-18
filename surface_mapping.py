@@ -127,7 +127,7 @@ def map_to_surface(param_data, t1_to_param_transform, t1t2_pipeline, mr_id, mr_t
 
             data = {'left': pd.read_csv(f'{outdir}/{out_id}_{param_tp}_mid_left_{param_name}_std_blur{surface_blur}.dat'), 
                     'right': pd.read_csv(f'{outdir}/{out_id}_{param_tp}_mid_right_{param_name}_std_blur{surface_blur}.dat')}
-            plot_surface.plot_surface(data, f'{qc_dir}/{out_id}_{param_tp}_{param_name}_surface_data.jpg', title=f'{out_id}_{param_tp}', cbar_title=param_name)
+            plot_surface.plot_surface(data, f'{qc_dir}/{out_id}_{param_tp}_{param_name}_surface_data.jpg', title=f'{out_id}_{param_tp}', cbar_title=param_name, clobber=clobber)
 
 
 
@@ -219,7 +219,7 @@ def map_to_surface_MNI(param_data, t1t2_pipeline, mr_id, mr_tp, param_tp, param_
         if qc_dir is not None:
             data = {'left': pd.read_csv(f'{outdir}/{out_id}_{param_tp}_mid_left_{param_name}_std_blur{surface_blur}.dat'), 
                     'right': pd.read_csv(f'{outdir}/{out_id}_{param_tp}_mid_right_{param_name}_std_blur{surface_blur}.dat')}
-            plot_surface.plot_surface(data, f'{qc_dir}/{out_id}_{param_tp}_{param_name}_surface_data.jpg', title=f'{out_id}_{param_tp}', cbar_title=param_name)
+            plot_surface.plot_surface(data, f'{qc_dir}/{out_id}_{param_tp}_{param_name}_surface_data.jpg', title=f'{out_id}_{param_tp}', cbar_title=param_name, clobber=clobber)
 
 
 def _run_process(process_list, sub_id, timepoint, hemisphere, measurement, clobber):
