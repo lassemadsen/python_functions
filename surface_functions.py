@@ -526,7 +526,7 @@ def correlation_pearson(param, indep_data):
 
 def correlation_other_surface(surface_data_dep, surface_data_indep, covars=None, correction='rft', 
                               cluster_threshold=0.001, alpha=0.05, plot=False, outdir=None, 
-                              dep_name=None, indep_name=None, clobber=False, **kwargs):
+                              dep_name=None, indep_name=None, quadratic=False, clobber=False, **kwargs):
     """
     Calculate the correlation of two surfaces 
 
@@ -618,8 +618,14 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covars=None,
         for i in vert_list:
             # --- Correlation with other surface ---
             term = FixedEffect(data_indep[i].values)
-            model = term
-            contrast = model.x0
+
+            if quadratic:
+                quad_term = FixedEffect(data_indep[i].values ** 2, names=['quad'], add_intercept=False)
+                model = term + quad_term
+                contrast = model.quad
+            else:
+                model = term
+                contrast = model.x0
 
             if covars is not None:
                 model = model + covar_term
@@ -639,30 +645,54 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covars=None,
             # is independent on which surface is first. 
 
             # 1. Run with indep_data as fit()
-            model = FixedEffect(surface_data_dep[hemisphere][common_subjects].mean().values)
+            term = FixedEffect(surface_data_dep[hemisphere][common_subjects].mean().values)
+            if quadratic:
+                quad_term = FixedEffect(surface_data_dep[hemisphere][common_subjects].mean().values ** 2, names=['quad'], add_intercept=False)
+                model = term + quad_term
+                contrast = model.quad
+            else:
+                model = term
+                contrast = model.x0
+
             if covars is not None:
                 model = model + covar_term
-            contrast = model.x0
+
             slm1 = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
             slm1.fit(data_indep.values) 
             slm1.t = np.array([t])
             slm1.multiple_comparison_corrections(True) # Run with actual t-values
 
             # 2. Run with dep_data as fit()
-            model = FixedEffect(surface_data_indep[hemisphere][common_subjects].mean().values)
+            term = FixedEffect(surface_data_indep[hemisphere][common_subjects].mean().values)
+            if quadratic:
+                quad_term = FixedEffect(surface_data_indep[hemisphere][common_subjects].mean().values ** 2, names=['quad'], add_intercept=False)
+                model = term + quad_term
+                contrast = model.quad
+            else:
+                model = term
+                contrast = model.x0
+
             if covars is not None:
                 model = model + covar_term
-            contrast = model.x0
+
             slm2 = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
             slm2.fit(data_dep.values) 
             slm2.t = np.array([t])
             slm2.multiple_comparison_corrections(True) # Run with actual t-values
 
             # 3. Finally run where slm.resls is set to the average of the two (whether fit is run with indep or dep does not change cluster p-values when slm.resl are set before)
-            model = FixedEffect(surface_data_indep[hemisphere][common_subjects].mean().values)
+            term = FixedEffect(surface_data_indep[hemisphere][common_subjects].mean().values)
+            if quadratic:
+                quad_term = FixedEffect(surface_data_indep[hemisphere][common_subjects].mean().values ** 2, names=['quad'], add_intercept=False)
+                model = term + quad_term
+                contrast = model.quad
+            else:
+                model = term
+                contrast = model.x0
+
             if covars is not None:
                 model = model + covar_term
-            contrast = model.x0
+
             slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
             slm.fit(data_dep.values) 
             slm.t = np.array([t])
@@ -670,10 +700,18 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covars=None,
             slm.multiple_comparison_corrections(True) # Run with actual t-values
 
         else:
-            model = FixedEffect(surface_data_dep[hemisphere][common_subjects].mean().values)
+            term = FixedEffect(surface_data_dep[hemisphere][common_subjects].mean().values)
+            if quadratic:
+                quad_term = FixedEffect(surface_data_dep[hemisphere][common_subjects].mean().values ** 2, names=['quad'], add_intercept=False)
+                model = term + quad_term
+                contrast = model.quad
+            else:
+                model = term
+                contrast = model.x0
+
             if covars is not None:
                 model = model + covar_term
-            contrast = model.x0
+        
             slm = SLM(model, contrast, surf=surf[hemisphere], correction=correction, cluster_threshold=cluster_threshold)
             slm.t = np.array([t])
 
@@ -715,7 +753,7 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covars=None,
                                  clobber=clobber, **kwargs)
             cluster_plot.correlation_plot(result, {'left': surface_data_dep['left'][common_subjects], 'right': surface_data_dep['right'][common_subjects]},
                                           {'left': surface_data_indep['left'][common_subjects], 'right': surface_data_indep['right'][common_subjects]},
-                                          dep_name, indep_name, outdir, cluster_summary=cluster_summary, alpha=alpha, clobber=clobber)
+                                          dep_name, indep_name, outdir, cluster_summary=cluster_summary, alpha=alpha, quadratic=quadratic, clobber=clobber)
             cluster_summary.to_csv(cluster_summary_file)
             
         plot_stats.plot_tval(t_value, outfile_uncorrected, p_threshold=cluster_threshold, df=result['left'].df, 
@@ -723,6 +761,7 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covars=None,
 
     return result, common_subjects, cluster_mask, cluster_summary
     
+
 def get_cluster_mask(result, correction, alpha):
     """
     Returns a mask indicating the clusters that survive the statistical test.
