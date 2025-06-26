@@ -525,7 +525,7 @@ def correlation_pearson(param, indep_data):
     return result, common_subjects
 
 def correlation_other_surface(surface_data_dep, surface_data_indep, covars=None, correction='rft', 
-                              cluster_threshold=0.001, alpha=0.05, plot=False, outdir=None, 
+                              cluster_threshold=0.001, alpha=0.05, plot=False, outdir=None, group_name=None, 
                               dep_name=None, indep_name=None, quadratic=False, clobber=False, **kwargs):
     """
     Calculate the correlation of two surfaces 
@@ -724,20 +724,26 @@ def correlation_other_surface(surface_data_dep, surface_data_indep, covars=None,
         cluster_summary = None
     else:
         cluster_summary = get_cluster_summary(result, alpha)
+
+    if group_name is not None:
+        outdir = f'{outdir}/Correlation/{group_name}'
+    else:
+        outdir = f'{outdir}/Correlation'
+
+    if quadratic:
+        outdir = outdir.replace('Correlation', 'Correlation_quad')
     
     if plot:
         if covars is None:
-            outdir = f'{outdir}/Correlation/{dep_name}_vs_{indep_name}'
             basename = f'{dep_name}_vs_{indep_name}_p{cluster_threshold}'
-            outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
-            outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
-            cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
+            outdir = f'{outdir}/{dep_name}_vs_{indep_name}'
         else:
-            outdir = f'{outdir}/Correlation/{dep_name}_vs_{indep_name}+{"+".join(covars.columns)}'
             basename = f'{dep_name}_vs_{indep_name}+{"+".join(covars.columns)}_p{cluster_threshold}'
-            outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
-            outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
-            cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
+            outdir = f'{outdir}/{dep_name}_vs_{indep_name}+{"+".join(covars.columns)}'
+
+        outfile_fwe_corrected = f'{outdir}/{basename}_fweCorrected.jpg'
+        outfile_uncorrected = f'{outdir}/{basename}_uncorrected.jpg'
+        cluster_summary_file = f'{outdir}/ClusterSum_{basename}_fweCorrected.csv'
 
         Path(outdir).mkdir(exist_ok=True, parents=True)
         print(f'Plotting results to {outdir}...')
@@ -820,17 +826,21 @@ def get_cluster_summary(result, alpha):
     for hemisphere in ['left', 'right']:
         mni_coord = result[hemisphere].surf.Points
         labels = np.loadtxt(ATLAS_LABELS[hemisphere], skiprows=1)
-        for posneg in [0, 1]:
-            cluster_survived = result[hemisphere].P['clus'][posneg][result[hemisphere].P['clus'][posneg].P < alpha]
+        for posneg in ['pos','neg']:
+            if posneg == 'pos':
+                posneg_idx = 0
+            else:
+                posneg_idx = 1
+            cluster_survived = result[hemisphere].P['clus'][posneg_idx][result[hemisphere].P['clus'][posneg_idx].P < alpha]
 
             if cluster_survived.empty:
                 continue
 
             for clusid in cluster_survived.clusid:
-                clus_pval = result[hemisphere].P['clus'][posneg][result[hemisphere].P['clus'][posneg].clusid == clusid].P.values[0]
+                clus_pval = result[hemisphere].P['clus'][posneg_idx][result[hemisphere].P['clus'][posneg_idx].clusid == clusid].P.values[0]
 
                 # Find peak vertex
-                clus_indices = np.where(result[hemisphere].P['clusid'][posneg] == clusid)[1]
+                clus_indices = np.where(result[hemisphere].P['clusid'][posneg_idx] == clusid)[1]
 
                 peak_vertex = clus_indices[0]
                 max_value = abs(result[hemisphere].t[0])[peak_vertex]
@@ -848,7 +858,7 @@ def get_cluster_summary(result, alpha):
                 peak_coord = mni_coord[peak_vertex]
                 peak_coord = [round(c) for c in peak_coord] # Round coordinates
                 
-                idx = np.where(result[hemisphere].P['clusid'][posneg][0] == clusid)[0]
+                idx = np.where(result[hemisphere].P['clusid'][posneg_idx][0] == clusid)[0]
                 polys = result[hemisphere].surf.polys2D[np.isin(result[hemisphere].surf.polys2D, idx).all(axis=1)]
 
                 area = 0
@@ -863,6 +873,7 @@ def get_cluster_summary(result, alpha):
                     area += A
 
                 cluster_summary = pd.concat([cluster_summary, pd.DataFrame({'clusid': [clusid], 
+                                                                            'sign_t': [posneg],
                                                                             'Anatomical location (peak)': anatomical_loc, 
                                                                             'Hemisphere': hemisphere, 
                                                                             'Cluster area (mm2)': f'{area:.0f}', 
