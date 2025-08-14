@@ -639,6 +639,7 @@ class DSC_process:
         self._check_mask(mask)
 
         self.mask = mask.get_fdata().astype(bool)
+        self._save_mask(self.mask, 'manual_mask.nii')
         self._qc_mask(self.mask, mask_file.split('/')[-1].split('.nii')[0])
 
     # QC methods
