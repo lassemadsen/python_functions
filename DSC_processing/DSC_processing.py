@@ -794,7 +794,7 @@ class DSC_process:
         #TODO Maybe track progression of analysis
         #TODO should header be different? 
 
-        outdir = f'{self.mask_dir}/{self.pwi_type}/NATSPACE'
+        outdir = f'{self.mask_dir}/NATSPACE'
         Path(outdir).mkdir(exist_ok=True, parents=True)
 
         mask_to_save = nib.Nifti1Image(mask, self.img.affine, self.img_hdr)
