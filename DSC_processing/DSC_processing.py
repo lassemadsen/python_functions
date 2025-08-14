@@ -673,6 +673,9 @@ class DSC_process:
             print('Baseline end must be set.')
             return
 
+        if slice_number > self.img_data.shape[2]:
+            slice_number = int(round(self.img_data.shape[2]/2))
+
         # Pre motion correction
         dif_images_pre_mc = np.stack([pre_mc[:,:,:,i] - pre_mc[:,:,:,self.baseline_end] for i in range(pre_mc.shape[3])], axis=-1)
         m_pre_mc = skimage.util.montage([dif_images_pre_mc[:,:,slice_number,i] for i in range(dif_images_pre_mc.shape[3])], grid_shape=(np.ceil(dif_images_pre_mc.shape[3]/n_cols), n_cols))
