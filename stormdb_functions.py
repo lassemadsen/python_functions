@@ -19,7 +19,7 @@ def convert_pwi(filtered_serie: dict, outfile: str, clobber: bool = False, path_
     if not os.path.isfile(outfile) or clobber:
 
         with TemporaryDirectory() as tmp_dir:
-            # Convert iamge data
+            # Convert image data
             dicom2nifti.convert_directory(path_prefix + filtered_serie['path'], tmp_dir, compression=False)
 
             # Rename output file

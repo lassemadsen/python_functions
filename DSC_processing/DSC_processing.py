@@ -210,7 +210,7 @@ class DSC_process:
         nimg = 2 ** (np.floor(np.log2(nframes)) + 1).astype(int)
 
         # Set up large matrix for holding image info (time by voxels)
-        stack = np.zeros((nimg, nx, ny))
+        stack = np.zeros((nimg, ny, nx))
 
         for multibandii in range(nslices // nslices_multiband):
             for sliceii in range(nslices_multiband):
@@ -345,10 +345,13 @@ class DSC_process:
 
         self._check_mask(aif_search_mask)
         self._check_mask(gm_mask)
+
+        aif_search_mask_data = aif_search_mask.get_fdata().astype(bool)
+        gm_mask_data = gm_mask.get_fdata().astype(bool)
         
 
         from aif_selection import aif_selection
-        self.aif_select = aif_selection(self, aif_search_mask.get_fdata(), gm_mask.get_fdata(), n_aif)
+        self.aif_select = aif_selection(self, aif_search_mask_data, gm_mask_data, n_aif)
         self.aif_select.select_aif()
         self.aif = self.aif_select.final_aif
         self.aif_area = np.trapz(self.aif, dx=self.repetition_time)
@@ -449,7 +452,7 @@ class DSC_process:
             self._check_mask(smooth_mask)
             smooth_mask = smooth_mask.get_fdata()
         elif isinstance(smooth_mask, np.ndarray):
-            pass # TODO how to check header?
+            print()
         elif smooth_mask is None:
             smooth_mask = np.zeros_like(self.img_data_mean)
         else: 
